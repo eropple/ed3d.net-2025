@@ -1,0 +1,1 @@
+GO SLOW WHEN ANSWERING QUESTIONS! I don't want you to rush ahead and touch ten files at a time or whatever. Change one or two very tightly related files and then give me time to read and understand them before continuing.

@@ -1,0 +1,41 @@
+{
+  "name": "ed3d-blog-platform",
+  "version": "0.0.1",
+  "private": true,
+  "description": "A modern blog platform built with SvelteKit",
+  "scripts": {
+    "run:dev": "dotenvx run -f ./.env.development --",
+    "svc:up": "./_dev-env/scripts/ensure-tilt.bash && pnpm run:dev tilt up",
+    "svc:down": "pnpm run:dev tilt down",
+    "prepare": "husky"
+  },
+  "packageManager": "pnpm@10.5.2",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "dependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.1"
+  },
+  "devDependencies": {
+    "@eslint/compat": "^1.2.8",
+    "@eslint/js": "^9.18.0",
+    "@stylistic/eslint-plugin": "^4.2.0",
+    "@typescript-eslint/eslint-plugin": "^8.29.1",
+    "@typescript-eslint/parser": "^8.29.1",
+    "eslint": "^9.24.0",
+    "eslint-config-prettier": "^10.0.1",
+    "eslint-plugin-import": "^2.31.0",
+    "eslint-plugin-prettier": "^5.2.6",
+    "globals": "^16.0.0",
+    "jsdom": "^26.0.0",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.3",
+    "typescript-eslint": "^8.20.0"
+  }
+}

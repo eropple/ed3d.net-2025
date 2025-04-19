@@ -1,0 +1,114 @@
+import {
+  asFunction,
+  asValue,
+  createContainer,
+  type AwilixContainer,
+} from "awilix";
+import { drizzle } from "drizzle-orm/node-postgres";
+import Redis from "ioredis";
+import type * as pg from "pg";
+import type { Logger } from "pino";
+import type { StaleWhileRevalidate } from "stale-while-revalidate-cache";
+import type { DeepReadonly } from "utility-types";
+
+import { fetchOpenIDConfiguration, type OIDCClientConfiguration } from "../../domain/auth/oidc-configuration/index.js";
+import { buildRedisSWRCache } from "../../swr/redis.js";
+
+import type { AppConfig } from "$lib/server/_config/types";
+import { buildDbPoolFromConfig, buildDrizzle } from "$lib/server/db/builders.js";
+import { buildDrizzleLogger } from "$lib/server/db/query-logger";
+import type { Drizzle, DrizzleRO } from "$lib/server/db/types";
+import { buildMemorySwrCache } from "$lib/server/swr/memory";
+import { buildTemporalConnection, TemporalClientService, type TemporalClient } from "$lib/server/temporal";
+import { loggedFetch, type FetchFn } from "$lib/server/utils/fetch";
+import { loggerWithLevel } from "$lib/server/utils/logging";
+
+// eslint-disable-next-line no-restricted-globals
+const globalFetch = fetch;
+
+export type AppSingletonCradle = {
+  config: DeepReadonly<AppConfig>;
+  logger: Logger;
+  fetch: FetchFn;
+
+  dbROPool: pg.Pool;
+  dbPool: pg.Pool;
+
+  dbRO: DrizzleRO;
+  db: Drizzle;
+
+  redis: Redis;
+  redisSWR: StaleWhileRevalidate;
+  memorySWR: StaleWhileRevalidate;
+
+  temporalClient: Promise<TemporalClient>;
+  temporal: TemporalClientService;
+
+  // domain objects too expensive to build on request go here
+  oidcConfig: Promise<OIDCClientConfiguration>;
+};
+
+export async function configureBaseAwilixContainer(
+  appConfig: AppConfig,
+  rootLogger: Logger,
+): Promise<AwilixContainer<AppSingletonCradle>> {
+  const container = createContainer<AppSingletonCradle>();
+
+  container.register({
+    config: asValue(appConfig),
+    logger: asValue(rootLogger),
+    fetch: asFunction(({ logger }: AppSingletonCradle) =>
+      loggedFetch(logger, globalFetch),
+    ),
+
+    dbROPool: asFunction(({ config, logger }: AppSingletonCradle) => {
+      return buildDbPoolFromConfig(
+        "readonly",
+        logger,
+        config.postgres.readonly,
+      );
+    }).singleton(),
+
+    dbPool: asFunction(({ config, logger }: AppSingletonCradle) => {
+      return buildDbPoolFromConfig(
+        "readwrite",
+        logger,
+        config.postgres.readwrite,
+      );
+    }).singleton(),
+
+    dbRO: asFunction(({ logger, config, dbROPool }: AppSingletonCradle) => buildDrizzle(logger, dbROPool, "drizzle-ro", config.postgres.readonly.logLevel)).singleton(),
+    db: asFunction(({ logger, config, dbPool }: AppSingletonCradle) => buildDrizzle(logger, dbPool, "drizzle", config.postgres.readwrite.logLevel)).singleton(),
+
+    redis: asFunction(({ config }: AppSingletonCradle) => {
+      return new Redis(config.redis.url);
+    }).singleton(),
+
+    redisSWR: asFunction(({ logger, redis }: AppSingletonCradle) =>
+      buildRedisSWRCache(logger, false, redis),
+    ).singleton(),
+    memorySWR: asFunction(({ config, logger }: AppSingletonCradle) =>
+      buildMemorySwrCache(config.memorySwr, logger),
+    ).singleton(),
+
+    temporalClient: asFunction(({ config }: AppSingletonCradle) => buildTemporalConnection({
+      address: config.temporal.address,
+      namespace: config.temporal.namespace,
+    }).then(({ temporalClient }) => temporalClient)),
+
+    temporal: asFunction(
+      ({ logger, temporalClient, config }: AppSingletonCradle) =>
+        new TemporalClientService(
+          logger,
+          temporalClient,
+          config.temporal.queues,
+        ),
+    ),
+
+    // domain objects too expensive to build on request go here
+    oidcConfig: asFunction(({ config, logger, fetch }: AppSingletonCradle) =>
+      fetchOpenIDConfiguration(logger, fetch, config.auth, config.insecureOptions.allowInsecureOpenIDProviders)),
+  });
+
+  return container;
+}
