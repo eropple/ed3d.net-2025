@@ -66,6 +66,9 @@ importers:
       '@fortawesome/free-solid-svg-icons':
         specifier: ^6.7.2
         version: 6.7.2
+      '@portabletext/svelte':
+        specifier: ^3.0.0
+        version: 3.0.0(svelte@5.26.1)
       '@sanity/client':
         specifier: ^6.29.0
         version: 6.29.0
@@ -84,6 +87,9 @@ importers:
       change-case:
         specifier: ^5.4.4
         version: 5.4.4
+      clsx:
+        specifier: ^2.1.1
+        version: 2.1.1
       cmd-ts:
         specifier: ^0.13.0
         version: 0.13.0
@@ -877,6 +883,19 @@ packages:
 
   '@polka/url@1.0.0-next.29':
     resolution: {integrity: sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==}
+
+  '@portabletext/svelte@3.0.0':
+    resolution: {integrity: sha512-1PTbasjgyYdA/vpt4BCs3Nc0Fr8pqJQRuI6llhpNe+JgZ1EoSstzzjkSSGn9TtPW7yPls5i/7QksqhYTjUDocw==}
+    peerDependencies:
+      svelte: ^5.0.0
+
+  '@portabletext/toolkit@2.0.17':
+    resolution: {integrity: sha512-5wj+oUaCmHm9Ay1cytPmT1Yc0SrR1twwUIc0qNQ3MtaXaNMPw99Gjt1NcA34yfyKmEf/TAB2NiiT72jFxdddIQ==}
+    engines: {node: ^14.13.1 || >=16.0.0}
+
+  '@portabletext/types@2.0.13':
+    resolution: {integrity: sha512-5xk5MSyQU9CrDho3Rsguj38jhijhD36Mk8S6mZo3huv6PM+t4M/5kJN2KFIxgvt4ONpvOEs1pVIZAV0cL0Vi+Q==}
+    engines: {node: ^14.13.1 || >=16.0.0 || >=18.0.0}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -4451,6 +4470,17 @@ snapshots:
   '@pkgr/core@0.2.2': {}
 
   '@polka/url@1.0.0-next.29': {}
+
+  '@portabletext/svelte@3.0.0(svelte@5.26.1)':
+    dependencies:
+      '@portabletext/toolkit': 2.0.17
+      svelte: 5.26.1
+
+  '@portabletext/toolkit@2.0.17':
+    dependencies:
+      '@portabletext/types': 2.0.13
+
+  '@portabletext/types@2.0.13': {}
 
   '@protobufjs/aspromise@1.1.2': {}
 
