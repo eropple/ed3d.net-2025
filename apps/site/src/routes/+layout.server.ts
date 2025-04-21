@@ -5,10 +5,10 @@ import type { LayoutServerLoad } from "./$types";
  * This makes the user available in all routes via $page.data.user
  */
 export const load: LayoutServerLoad = async ({ locals }) => {
-  // Extract the user from locals
+  const logger = locals.logger.child({ fn: "/+layout.server.ts:load" });
   const { user } = locals;
 
-  // Return the user as part of the layout data
+
   return {
     user
   };

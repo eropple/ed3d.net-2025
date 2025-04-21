@@ -1,8 +1,8 @@
 import { type Static, Type } from "@sinclair/typebox";
 import { TypeCompiler } from "@sinclair/typebox/compiler";
 
-import { AuthConfig } from "../../domain/auth/config.js";
 import { RedisConfig } from "../../redis/config.js";
+import { SanityConfig } from "../../sanity/config";
 import { TemporalConfig } from "../../temporal/config";
 
 import { LogLevel } from "./log-level";
@@ -42,13 +42,13 @@ export const AppConfig = Type.Intersect([
   BaseConfig,
   Type.Object({
     urls: UrlsConfig,
-    auth: AuthConfig,
 
     memorySwr: MemorySWRConfig,
 
     redis: RedisConfig,
     postgres: PostgresConfig,
     temporal: TemporalConfig,
+    sanity: SanityConfig,
   }),
 ]);
 export type AppConfig = Static<typeof AppConfig>;

@@ -15,7 +15,10 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "esbuild"
+      "@swc/core",
+      "@temporalio/core-bridge",
+      "esbuild",
+      "protobufjs"
     ]
   },
   "dependencies": {

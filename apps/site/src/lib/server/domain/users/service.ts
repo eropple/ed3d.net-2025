@@ -4,12 +4,12 @@ import { eq } from "drizzle-orm";
 import gravatarUrl from "gravatar-url";
 import { type Logger } from "pino";
 
+import { UserIds, type UserId } from "../../../domain/users/ids.js";
+import type { UserPrivate, UserPublic } from "../../../domain/users/types.js";
 import { type StringUUID } from "../../../ext/typebox/index.js";
 import { type DBUser, users } from "../../db/schema/index.js";
 import { type DrizzleRO, type Drizzle } from "../../db/types.js";
 
-import { UserIds, type UserId } from "./ids.js";
-import { type UserPrivate, type UserPublic } from "./types.js";
 
 export class UserService {
   private readonly logger: Logger;
@@ -75,27 +75,6 @@ export class UserService {
   }
 
   /**
-   * Get a user by their OIDC subject identifier
-   */
-  async getByOidcSub(oidcSub: string, executor: DrizzleRO = this.dbRO): Promise<UserPrivate | null> {
-    this.logger.debug({ oidcSub }, "Getting user by OIDC subject");
-
-    const result = await executor
-      .select()
-      .from(users)
-      .where(eq(users.oidcSub, oidcSub))
-      .limit(1);
-
-    const dbUser = result[0] || null;
-
-    if (!dbUser) {
-      return null;
-    }
-
-    return this._dbUserToUserPrivate(dbUser);
-  }
-
-  /**
    * Get a user by their username
    */
   async getByUsername(username: string, executor: DrizzleRO = this.dbRO): Promise<UserPublic | null> {
@@ -114,72 +93,6 @@ export class UserService {
     }
 
     return this._dbUserToUserPublic(dbUser);
-  }
-
-  /**
-   * Create a new user from OIDC identity data
-   */
-  async createUserFromOIDC(
-    email: string,
-    username: string,
-    oidcSub: string,
-    oidcIdentity: NonNullable<DBUser["oidcIdentity"]>,
-    executor: Drizzle = this.db,
-  ): Promise<UserPrivate> {
-    this.logger.info({ email, username, oidcSub }, "Creating new user from OIDC");
-
-    const [dbUser] = await executor
-      .insert(users)
-      .values({
-        email,
-        username,
-        oidcSub,
-        oidcIdentity,
-        emailVerified: oidcIdentity.email_verified ?? false,
-      })
-      .returning();
-
-    if (!dbUser) {
-      throw new Error("Failed to create user");
-    }
-
-    return this._dbUserToUserPrivate(dbUser);
-  }
-
-  /**
-   * Update a user's OIDC identity
-   */
-  async updateOIDCIdentity(
-    userId: UserId,
-    oidcIdentity: NonNullable<DBUser["oidcIdentity"]>,
-    executor: Drizzle = this.db,
-  ): Promise<UserPrivate> {
-    this.logger.debug({ userId }, "Updating user OIDC identity (re-login)");
-
-    const uuid = UserIds.toUUID(userId);
-
-    const currentDbUser = await this.getByUserUUID(uuid);
-
-    if (!currentDbUser) {
-      throw new Error("User not found");
-    }
-
-    const [dbUser] = await executor
-      .update(users)
-      .set({
-        oidcIdentity,
-        email: oidcIdentity.email as string,
-        emailVerified: oidcIdentity.email_verified ?? false,
-        lastAccessedAt: new Date(),
-      })
-      .where(eq(users.userUuid, uuid))
-      .returning();
-
-    if (!dbUser) {
-      throw new Error("Failed to update user");
-    }
-
-    return this._dbUserToUserPrivate(dbUser);
   }
 
   /**
@@ -218,12 +131,12 @@ export class UserService {
       emailVerified: dbUser.emailVerified ?? false,
       grants: {
         __type: "SiteGrants",
-        isStaff: dbUser.oidcIdentity.ed3dsite?.is_staff ?? false,
-        isAdmin: dbUser.oidcIdentity.ed3dsite?.is_admin ?? false,
+        isStaff: false,
+        isAdmin: false,
 
         comments: {
-          moderate: dbUser.oidcIdentity.comments?.moderate ?? false,
-          post: !!dbUser.emailVerified && !dbUser.oidcIdentity.comments?.no_post,
+          moderate: true,
+          post: !!dbUser.emailVerified,
         },
       },
       lastAccessedAt: dbUser.lastAccessedAt ? dbUser.lastAccessedAt.getTime() : undefined,

@@ -12,7 +12,7 @@ const { APP_CONFIG, ROOT_LOGGER, SINGLETON_CONTAINER } = await bootstrapSvelte("
 
 ROOT_LOGGER.info({ csrfOrigin: env.ORIGIN ?? "NOT SET!!" }, "Initializing hooks.server.ts.");
 
-const SESSION_COOKIE_NAME = APP_CONFIG.auth.session.cookieName;
+// const SESSION_COOKIE_NAME = APP_CONFIG.auth.session.cookieName;
 
 
 export const handle: Handle = sequence(async ({ event, resolve }) => {
@@ -39,13 +39,15 @@ export const handle: Handle = sequence(async ({ event, resolve }) => {
   );
 
   // Resolve the session cookie
-  const sessionCookie = event.cookies.get(SESSION_COOKIE_NAME);
-  const user = await requestContainer.cradle.auth.resolveSessionCookie(sessionCookie);
+  // const sessionCookie = event.cookies.get(SESSION_COOKIE_NAME);
+  // const user = await requestContainer.cradle.auth.resolveSessionCookie(sessionCookie);
   // @ts-expect-error this is where we set a readonly value
-  event.locals.user = user;
+  // event.locals.user = user;
 
-  if (user) {
-    logger = logger.child({ userId: user.userId });
+  event.locals.user = null;
+
+  if (event.locals.user) {
+    logger = logger.child({ userId: event.locals.user.userId });
     logger.info("Session authenticated.");
 
     requestContainer.register( { logger: asValue(logger) });

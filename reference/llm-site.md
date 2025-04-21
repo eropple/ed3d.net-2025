@@ -13,6 +13,8 @@ The application uses Awilix for dependency injection with two primary scopes:
 ## Key Services
 
 ### Database
+The database is for user objects and the like. Content comes in via Sanity.
+
 ```typescript
 // Read-only and read-write pools with separate configuration
 dbROPool: pg.Pool  // Read-only connection pool

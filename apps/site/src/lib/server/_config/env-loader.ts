@@ -2,12 +2,12 @@ import ms from "ms";
 import { getBool, getNum, getStr, requireStr } from "node-getenv";
 
 import type { RedisConfig } from "../redis/config.js";
+import type { SanityConfig } from "../sanity/config.js";
 
 import { AppConfigChecker, type AppConfig, type BaseConfig, type InsecureOptionsConfig, type UrlsConfig } from "./types/index.js";
 import type { LogLevel } from "./types/log-level.js";
 
 import type { PostgresConfig, PostgresHostConfig } from "$lib/server/db/config";
-import type { AuthConfig, SessionConfig } from "$lib/server/domain/auth/config.js";
 import type { MemorySWRConfig } from "$lib/server/swr/memory";
 import type { TemporalConfig, TemporalQueueConfig } from "$lib/server/temporal/config";
 
@@ -76,21 +76,16 @@ function loadTemporalConfig(): TemporalConfig {
   };
 }
 
-function loadSessionConfig(): SessionConfig {
+function loadSanityConfig(): SanityConfig {
   return {
-    cookieName: requireStr("AUTH__SESSION__COOKIE_NAME"),
-    cookieDomain: requireStr("AUTH__SESSION__COOKIE_DOMAIN"),
-    cookieSecure: getBool("AUTH__SESSION__COOKIE_SECURE", false),
-    cookieSameSite: getStr("AUTH__SESSION__COOKIE_SAMESITE", "lax") as "strict" | "lax" | "none",
-    maxAgeMs: ms(getStr("AUTH__SESSION__MAX_AGE_MS", "30d")),
-  };
-}
-function loadAuthConfig(): AuthConfig {
-  return {
-    clientId: requireStr("AUTH__CLIENT_ID"),
-    clientSecret: requireStr("AUTH__CLIENT_SECRET"),
-    oidcUrl: requireStr("AUTH__OIDC_URL"),
-    session: loadSessionConfig(),
+    projectId: requireStr("SANITY__PROJECT_ID"),
+    dataset: requireStr("SANITY__DATASET"),
+    token: requireStr("SANITY__TOKEN"),
+    apiVersion: getStr("SANITY__API_VERSION", "2021-03-25"),
+    content: {
+      contentStage: getStr("SANITY__CONTENT_STAGE", "development"),
+      bypassCdnGlobal: getBool("SANITY__BYPASS_CDN_GLOBAL", false),
+    },
   };
 }
 
@@ -104,11 +99,11 @@ export function loadAppConfigFromNodeEnv(): AppConfig {
   const config = {
     ...loadBaseConfig(),
     urls: loadUrlsConfig(),
-    auth: loadAuthConfig(),
     redis: loadRedisConfig(),
     memorySwr: loadMemorySWRConfig(),
     postgres: loadPostgresConfig(),
     temporal: loadTemporalConfig(),
+    sanity: loadSanityConfig(),
   };
 
   AppConfigChecker.Decode(config);
