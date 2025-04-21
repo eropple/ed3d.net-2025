@@ -1,0 +1,112 @@
+@reference 'tailwindcss';
+
+.long-form-content > h2,
+.long-form-content > h3,
+.long-form-content > p,
+.long-form-content > ul,
+.long-form-content > ol,
+.long-form-content > hr {
+  @apply w-full;
+  @apply md:w-3/5;
+  @apply lg:w-3/4;
+}
+
+.long-form-content > figure {
+  @apply w-11/12;
+  @apply md:w-3/5;
+  @apply lg:w-3/4;
+}
+
+.long-form-content > ul,
+.long-form-content > ol {
+  @apply list-inside;
+
+  @apply pl-8;
+  @apply my-4;
+}
+
+.long-form-content > ul {
+  @apply list-disc;
+}
+
+.long-form-content > ol {
+  @apply list-decimal;
+}
+/*
+.long-form-content > ul > li > ul,
+.long-form-content > ol > li > ul {
+  @apply list-square;
+}
+
+.long-form-content > ul > li > ol,
+.long-form-content > ol > li > ol {
+  @apply list-upperAlpha;
+}
+
+.long-form-content > ul > li > ul > li > ul,
+.long-form-content > ol > li > ul > li > ul,
+.long-form-content > ul > li > ol > li > ul,
+.long-form-content > ol > li > ol > li > ul {
+  @apply list-circle;
+}
+
+.long-form-content > ul > li > ul > li > ol,
+.long-form-content > ol > li > ul > li > ol,
+.long-form-content > ul > li > ol > li > ol,
+.long-form-content > ol > li > ol > li > ol {
+  @apply list-lowerAlpha;
+} */
+
+.long-form-content > p,
+.long-form-content > figure p {
+  @apply my-2;
+}
+
+.long-form-content > h2 {
+  @apply text-2xl;
+  @apply font-medium;
+}
+
+.long-form-content > h3 {
+  @apply text-xl;
+  @apply font-medium;
+}
+
+.long-form-content > h1,
+.long-form-content > h2,
+.long-form-content > h3 {
+  @apply mb-2;
+  @apply mt-8;
+}
+
+.long-form-content > figure.figure-blockquote,
+.long-form-content > figure.figure-epigraph {
+  @apply pl-4;
+
+  @apply mx-8;
+  @apply my-4;
+}
+
+.long-form-content > figure.figure-blockquote {
+  @apply border-none;
+  @apply border-solid;
+  @apply border-l-4;
+
+  border-color: var(--color-secondary);
+
+  @apply text-base;
+}
+.long-form-content > figure.figure-epigraph {
+  @apply italic;
+  @apply text-xl;
+  /* @apply font-medium; */
+}
+
+.long-form-content > figure.figure-epigraph em {
+  @apply not-italic;
+}
+
+.long-form-content > figure.figure-blockquote > figcaption,
+.long-form-content > figure.figure-epigraph > figcaption {
+  @apply mt-4;
+}
