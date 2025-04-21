@@ -1,5 +1,5 @@
 import type { SanityClient } from "@sanity/client";
-import { sortBy } from "lodash";
+import _ from "lodash";
 import type { Logger } from "pino";
 
 import type { ContentConfig } from "../../sanity/content-config.js";
@@ -149,7 +149,7 @@ export class BlogPostService {
       all: result.all,
       categories: Object.fromEntries(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        sortBy(result.categories, "slug").map((c: any) => [c.slug, c]),
+        _.sortBy(result.categories, "slug").map((c: any) => [c.slug, c]),
       ),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       tags: Object.fromEntries(result.tags.map((t: any) => [t.slug, t.total])),

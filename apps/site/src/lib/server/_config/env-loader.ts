@@ -82,6 +82,10 @@ function loadSanityConfig(): SanityConfig {
     dataset: requireStr("SANITY__DATASET"),
     token: requireStr("SANITY__TOKEN"),
     apiVersion: getStr("SANITY__API_VERSION", "2021-03-25"),
+    content: {
+      contentStage: getStr("SANITY__CONTENT_STAGE", "development"),
+      bypassCdnGlobal: getBool("SANITY__BYPASS_CDN_GLOBAL", false),
+    },
   };
 }
 

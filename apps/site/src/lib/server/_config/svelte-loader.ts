@@ -20,6 +20,14 @@ function loadBaseConfig(): BaseConfig {
   };
 }
 
+function loadUrlsConfig(): UrlsConfig {
+  return {
+    frontendBaseUrl: env.URLS__FRONTEND_BASE_URL,
+    s3BaseUrl: env.URLS__S3_BASE_URL,
+    s3ExternalUrl: env.URLS__S3_EXTERNAL_URL,
+  };
+}
+
 function loadInsecureOptionsConfig(): InsecureOptionsConfig {
   return {
     insecurelyLogOAuth2Payloads: env.INSECURELY_LOG_OAUTH2_PAYLOADS === "true",
@@ -75,6 +83,10 @@ function loadSanityConfig(): SanityConfig {
     dataset: env.SANITY__DATASET,
     token: env.SANITY__TOKEN,
     apiVersion: env.SANITY__API_VERSION ?? "2021-03-25",
+    content: {
+      contentStage: (env.SANITY__CONTENT_STAGE ?? "development") as "development" | "production",
+      bypassCdnGlobal: [1, true, "true"].includes(env.SANITY__BYPASS_CDN_GLOBAL ?? false),
+    },
   };
 }
 
@@ -88,6 +100,7 @@ export function loadAppConfigFromSvelteEnv(): AppConfig {
   const config = {
     ...loadBaseConfig(),
     memorySwr: loadMemorySWRConfig(),
+    urls: loadUrlsConfig(),
     redis: loadRedisConfig(),
     postgres: loadPostgresConfig(),
     temporal: loadTemporalConfig(),

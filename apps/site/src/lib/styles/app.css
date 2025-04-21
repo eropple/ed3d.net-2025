@@ -2,9 +2,9 @@
 @plugin '@tailwindcss/forms';
 @plugin '@tailwindcss/typography';
 
-@plugin "daisyui" {
-    root: "#daisyui-root";
-}
+@import "@fontsource/inconsolata/index.css";
+@import "@fontsource/lora/index.css";
+@import "@fontsource/noto-sans-display/index.css";
 
 @theme {
   --color-*: initial;
@@ -17,10 +17,9 @@
   --color-less-dark: #1e293b;
   --color-black: #000000;
 
-  --font-*: initial;
-  --font-sans: var(--font-sans), sans-serif;
-  --font-serif: var(--font-serif), serif;
-  --font-mono: var(--font-mono), monospace;
+  --font-sans: "Noto Sans Display", sans-serif;
+  --font-serif: "Lora", serif;
+  --font-mono: "Inconsolata", monospace;
 
   --list-style-type-*: initial;
   --list-style-type-none: none;
@@ -50,6 +49,10 @@
   ::file-selector-button {
     border-color: var(--color-gray-200, currentcolor);
   }
+}
+
+html {
+  @apply font-serif;
 }
 
 p a,

@@ -27,7 +27,7 @@
               href={item.href}
               title={item.name}
             >
-              <Fa icon={item.icon} />
+              <Fa size="lg" icon={item.icon} />
             </a>
           </li>
         {/each}

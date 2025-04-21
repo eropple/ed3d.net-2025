@@ -14,10 +14,6 @@
   const components: PortableTextComponents = {
     block: {
       centered: CenteredBlock,
-      normal: undefined, // use default
-      h1: undefined, // use default
-      h2: undefined, // use default
-      h3: undefined, // use default
     },
     types: {
       blockQuote: FigureBlockQuote,

@@ -44,6 +44,9 @@
 		"vitest": "^3.0.0"
 	},
 	"dependencies": {
+		"@fontsource/inconsolata": "^5.2.5",
+		"@fontsource/lora": "^5.2.5",
+		"@fontsource/noto-sans-display": "^5.2.6",
 		"@fortawesome/free-brands-svg-icons": "^6.7.2",
 		"@fortawesome/free-solid-svg-icons": "^6.7.2",
 		"@portabletext/svelte": "^3.0.0",

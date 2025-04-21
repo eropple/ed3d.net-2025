@@ -6,6 +6,7 @@ export const ContentConfig = Type.Object({
     Type.Literal("development"),
     Type.Literal("production"),
   ]),
+  bypassCdnGlobal: Type.Boolean({ default: false }),
 });
 export type ContentConfig = Static<typeof ContentConfig>;
 export const ContentConfigChecker = TypeCompiler.Compile(ContentConfig);

@@ -8,7 +8,6 @@ export const SanityConfig = Type.Object({
   projectId: Type.String(),
   token: Type.String(),
   dataset: Type.String(),
-  useCdn: Type.Boolean(),
   content: ContentConfig,
 });
 export type SanityConfig = Static<typeof SanityConfig>;
