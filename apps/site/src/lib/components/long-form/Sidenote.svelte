@@ -3,10 +3,8 @@
   export let markdown: string;
 </script>
 
-<span class="sidenote-wrapper">
-  <label for={id} class="margin-toggle sidenote-number"></label>
-  <input type="checkbox" id={id} class="margin-toggle" />
-  <span class="sidenote">
-    {@html markdown}
-  </span>
+<label for={`sn-${id}`} class="margin-toggle sidenote-number"></label>
+<input type="checkbox" id={`sn-${id}`} class="margin-toggle" />
+<span class="sidenote">
+  {@html markdown}
 </span>

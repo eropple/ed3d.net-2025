@@ -44,7 +44,7 @@ export async function seed(environment: string, deps: AppSingletonCradle) {
 
       logger.debug({ seedFilePath }, "Loading potential seed.");
 
-      const seedModule = await import(`${seedDir}/${filename}`);
+      const seedModule = await import(/* @vite-ignore */ `${seedDir}/${filename}`);
       const sha256 = Crypto.createHash("sha256")
         .update(seedFileContents)
         .digest("hex");
