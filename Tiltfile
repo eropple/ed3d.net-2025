@@ -150,12 +150,21 @@ if tilt_runmode == 'dev-in-tilt':
         cmd="pnpm cli:dev db migrate && pnpm cli:dev seed apply",
         resource_deps=["wait-for-dependencies"],
         labels=["03-cmd"])
+    
+    local_resource(
+        "cms",
+        allow_parallel=True,
+        serve_dir="./apps/cms",
+        serve_cmd="pnpm dev",
+        resource_deps=["wait-for-dependencies"],
+        labels=["00-app"]
+    )
 
     local_resource("site",
         serve_dir=site_dir,
         serve_cmd="pnpm dev",
         allow_parallel=True,
-        resource_deps=["migrate-postgres"],
+        resource_deps=["migrate-postgres", "cms"],
         links=[
             link(os.environ['BASE_URL'], "Site Home"),
             link("http://local.drizzle.studio:" + studio_port, "Drizzle Studio"),

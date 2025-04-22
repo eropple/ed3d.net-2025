@@ -3,9 +3,8 @@
 port="$DRIZZLE_STUDIO_PORT"
 
 NEEDLE="port $port"
-pgrep -aAf -- "$NEEDLE"
 
-pids=$(pgrep -Af "$NEEDLE")
+pids=$(pgrep -f -- "$NEEDLE")
 
 for pid in $pids; do
     echo "PID: $pid - $(ps -p $pid -o command=)"

@@ -1,0 +1,57 @@
+{
+  "dependencies": {
+    "@sanity/color-input": "^4.0.3",
+    "@sanity/vision": "^3.85.1",
+    "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
+    "groqd": "^1.4.0",
+    "groqd-playground": "^0.0.20",
+    "node-getenv": "^2.0.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-icons": "^5.5.0",
+    "react-is": "^19.1.0",
+    "sanity": "^3.85.1",
+    "sanity-plugin-asset-source-unsplash": "^3.0.3",
+    "sanity-plugin-media": "^3.0.2",
+    "styled-components": "^6.1.17"
+  },
+  "devDependencies": {
+    "@sanity/eslint-config-studio": "^5.0.2",
+    "@types/react": "^19.1.2",
+    "@types/styled-components": "^5.1.34",
+    "eslint": "^9.25.0",
+    "prettier": "^3.5.3",
+    "sanity-codegen": "1.0.0-alpha.45",
+    "typescript": "^5.8.3"
+  },
+  "keywords": [
+    "sanity"
+  ],
+  "license": "UNLICENSED",
+  "main": "package.json",
+  "name": "ed3d-cms",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "prettier": {
+    "bracketSpacing": false,
+    "printWidth": 100,
+    "semi": true,
+    "singleQuote": false
+  },
+  "private": true,
+  "scripts": {
+    "build": "sanity build",
+    "deploy": "sanity deploy",
+    "deploy-graphql": "sanity graphql deploy",
+    "dev": "pnpm run -s typegen:dev && pnpm run -s run:dev sanity dev",
+    "run:dev": "dotenvx run -f ../../.env.development --",
+    "start": "sanity start",
+    "typegen": "sanity schema extract --enforce-required-fields && sanity typegen generate && cp ./sanity.types.ts ../../apps/site/src/lib/server/sanity/sanity-content-types.ts",
+    "typegen:dev": "pnpm run -s run:dev pnpm run -s typegen"
+  },
+  "version": "1.0.0"
+}
