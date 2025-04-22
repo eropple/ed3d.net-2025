@@ -3,6 +3,7 @@ import { getBool, getNum, getStr, requireStr } from "node-getenv";
 
 import type { RedisConfig } from "../redis/config.js";
 import type { SanityConfig } from "../sanity/config.js";
+import type { VaultConfig } from "../vault/config.js";
 
 import { AppConfigChecker, type AppConfig, type BaseConfig, type InsecureOptionsConfig, type UrlsConfig } from "./types/index.js";
 import type { LogLevel } from "./types/log-level.js";
@@ -95,10 +96,20 @@ function loadRedisConfig(): RedisConfig {
   };
 }
 
+function loadVaultConfig(): VaultConfig {
+  return {
+    primaryKey: requireStr("VAULT__PRIMARY_KEY"),
+    legacyKeys: getStr("VAULT__LEGACY_KEYS", "")
+      .split(",")
+      .filter(key => key.trim().length > 0)
+  };
+}
+
 export function loadAppConfigFromNodeEnv(): AppConfig {
   const config = {
     ...loadBaseConfig(),
     urls: loadUrlsConfig(),
+    vault: loadVaultConfig(),
     redis: loadRedisConfig(),
     memorySwr: loadMemorySWRConfig(),
     postgres: loadPostgresConfig(),

@@ -2,6 +2,7 @@ import ms from "ms";
 
 import type { RedisConfig } from "../redis/config.js";
 import type { SanityConfig } from "../sanity/config.js";
+import type { VaultConfig } from "../vault/config.js";
 
 import { AppConfigChecker, type AppConfig, type BaseConfig, type InsecureOptionsConfig, type UrlsConfig } from "./types/index.js";
 import type { LogLevel } from "./types/log-level.js";
@@ -96,11 +97,21 @@ function loadRedisConfig(): RedisConfig {
   };
 }
 
+function loadVaultConfig(): VaultConfig {
+  return {
+    primaryKey: env.VAULT__PRIMARY_KEY!,
+    legacyKeys: env.VAULT__LEGACY_KEYS
+      ? env.VAULT__LEGACY_KEYS.split(",").filter(key => key.trim().length > 0)
+      : undefined
+  };
+}
+
 export function loadAppConfigFromSvelteEnv(): AppConfig {
   const config = {
     ...loadBaseConfig(),
     memorySwr: loadMemorySWRConfig(),
     urls: loadUrlsConfig(),
+    vault: loadVaultConfig(),
     redis: loadRedisConfig(),
     postgres: loadPostgresConfig(),
     temporal: loadTemporalConfig(),

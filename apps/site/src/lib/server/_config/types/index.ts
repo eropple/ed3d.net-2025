@@ -11,6 +11,7 @@ import { PostgresConfig } from "$lib/server/db/config";
 import { MemorySWRConfig } from "$lib/server/swr/memory";
 
 import "$lib/ext/typebox/index.js";
+import { VaultConfig } from "../../vault/config.js";
 
 
 
@@ -49,6 +50,7 @@ export const AppConfig = Type.Intersect([
     postgres: PostgresConfig,
     temporal: TemporalConfig,
     sanity: SanityConfig,
+    vault: VaultConfig,
   }),
 ]);
 export type AppConfig = Static<typeof AppConfig>;
