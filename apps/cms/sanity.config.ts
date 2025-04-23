@@ -8,13 +8,12 @@ import {schemaTypes} from './schemas'
 import { requireStr } from 'node-getenv';
 import { groqdPlaygroundTool } from 'groqd-playground';
 
-
-export default defineConfig({
+const config = defineConfig({
   name: 'default',
   title: 'ed3d CMS',
 
-  projectId: requireStr('ED3D_CMS_PROJECT_ID'),
-  dataset: requireStr('ED3D_CMS_DATASET'),
+  projectId: "iqiyza0w",
+  dataset: "production",
 
   plugins: [
     structureTool(),
@@ -29,3 +28,5 @@ export default defineConfig({
     types: schemaTypes,
   },
 })
+
+export default config

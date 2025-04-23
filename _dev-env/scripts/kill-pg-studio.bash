@@ -4,7 +4,11 @@ port="$DRIZZLE_STUDIO_PORT"
 
 NEEDLE="port $port"
 
-pids=$(pgrep -f -- "$NEEDLE")
+if [[ $(uname) == "Darwin" ]]; then
+    pids=$(pgrep -f -- "$NEEDLE")
+else
+    pids=$(pgrep -fA -- "$NEEDLE")
+fi
 
 for pid in $pids; do
     echo "PID: $pid - $(ps -p $pid -o command=)"

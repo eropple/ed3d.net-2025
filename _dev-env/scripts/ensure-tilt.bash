@@ -12,6 +12,3 @@ cd "$(dirname "$0")" || exit 1
 
 # cd to parent directory
 cd .. || exit 1
-
-# ensure keycloak's realm is ready
-./k8s/keycloak/apply-realm-patch.bash

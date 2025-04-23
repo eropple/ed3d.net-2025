@@ -7,7 +7,7 @@ import { type Logger } from "pino";
 import { UserIds, type UserId } from "../../../domain/users/ids.js";
 import type { UserPrivate, UserPublic } from "../../../domain/users/types.js";
 import { type StringUUID } from "../../../ext/typebox/index.js";
-import { type DBUser, users } from "../../db/schema/index.js";
+import { USERS, type DBUser } from "../../db/schema/index.js";
 import { type DrizzleRO, type Drizzle } from "../../db/types.js";
 
 
@@ -40,8 +40,8 @@ export class UserService {
 
     const result = await executor
       .select()
-      .from(users)
-      .where(eq(users.userUuid, userId))
+      .from(USERS)
+      .where(eq(USERS.userUuid, userId))
       .limit(1);
 
       const dbUser = result[0] || null;
@@ -61,8 +61,8 @@ export class UserService {
 
     const result = await executor
       .select()
-      .from(users)
-      .where(eq(users.email, email))
+      .from(USERS)
+      .where(eq(USERS.email, email))
       .limit(1);
 
     const dbUser = result[0] || null;
@@ -82,8 +82,8 @@ export class UserService {
 
     const result = await executor
       .select()
-      .from(users)
-      .where(eq(users.username, username))
+      .from(USERS)
+      .where(eq(USERS.username, username))
       .limit(1);
 
     const dbUser = result[0] || null;
@@ -128,7 +128,7 @@ export class UserService {
       username: dbUser.username,
       avatarUrl: UserService.getGravatarUrl(dbUser.email),
       email: dbUser.email,
-      emailVerified: dbUser.emailVerified ?? false,
+      emailVerified: !!dbUser.emailVerifiedAt,
       grants: {
         __type: "SiteGrants",
         isStaff: false,
@@ -136,10 +136,9 @@ export class UserService {
 
         comments: {
           moderate: true,
-          post: !!dbUser.emailVerified,
+          post: !!dbUser.emailVerifiedAt,
         },
       },
-      lastAccessedAt: dbUser.lastAccessedAt ? dbUser.lastAccessedAt.getTime() : undefined,
       createdAt: dbUser.createdAt.getTime(),
       disabledAt: dbUser.disabledAt ? dbUser.disabledAt.getTime() : undefined,
     };

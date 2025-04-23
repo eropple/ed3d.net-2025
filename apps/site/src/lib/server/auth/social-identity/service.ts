@@ -1,0 +1,500 @@
+import { Type, type Static } from "@sinclair/typebox";
+import { TypeCompiler } from "@sinclair/typebox/compiler";
+import cryptoRandomString from "crypto-random-string";
+import { and, eq } from "drizzle-orm";
+import * as oauth from "oauth4webapi";
+import type { Logger } from "pino";
+
+import { UserIds, type UserId } from "../../../domain/users/ids.js";
+import { StringUUID } from "../../../ext/typebox/index.js";
+import {
+  SOCIAL_OAUTH2_PROVIDER_KIND,
+  USER_SOCIAL_OAUTH2_IDENTITIES,
+  USERS,
+  type SocialOAuth2ProviderKind
+} from "../../db/schema/index.js";
+import type { Drizzle } from "../../db/types.js";
+import type { FetchFn } from "../../utils/fetch.js";
+import type { VaultService } from "../../vault/service.js";
+
+import type { SocialIdentityConfig } from "./config.js";
+import type { NormalizedUserInfo, OAuth2Provider } from "./providers/base.js";
+import { GitHubProvider } from "./providers/github.js";
+import { GoogleProvider } from "./providers/google.js";
+
+// TypeBox schema for authorization data
+export const AuthorizationDataSchema = Type.Object({
+  userUuid: StringUUID,
+  provider: Type.Union([
+    ...SOCIAL_OAUTH2_PROVIDER_KIND.enumValues.map(provider => Type.Literal(provider))
+  ])
+});
+
+export type AuthorizationData = Static<typeof AuthorizationDataSchema>;
+export const AuthorizationDataChecker = TypeCompiler.Compile(AuthorizationDataSchema);
+
+/**
+ * Standard OAuth2 token response structure
+ */
+export interface OAuth2TokenData {
+  access_token: string;
+  refresh_token?: string;
+  expires_in?: number;
+  token_type?: string;
+  scope?: string;
+}
+
+export class SocialIdentityService {
+  private readonly providers: Record<SocialOAuth2ProviderKind, OAuth2Provider>;
+
+  constructor(
+    private readonly logger: Logger,
+    private readonly db: Drizzle,
+    private readonly vault: VaultService,
+    private readonly config: SocialIdentityConfig,
+    private readonly fetch: FetchFn,
+    private readonly frontendBaseUrl: string
+  ) {
+    this.logger = logger.child({ context: this.constructor.name });
+
+    // Initialize providers
+    this.providers = {
+      github: new GitHubProvider(this.logger, this.fetch),
+      google: new GoogleProvider(this.logger, this.fetch),
+    };
+  }
+
+// src/lib/server/auth/social-identity/service.ts
+/**
+ * Generate a secure state value for OAuth2 flow
+ */
+private async generateStateToken(stateData: AuthorizationData): Promise<string> {
+  const stateDataString = JSON.stringify(stateData);
+  const encryptedStateData = await this.vault.encrypt(stateDataString);
+  // Convert the Sensitive<string> to a serializable format before base64 encoding
+  const serializedEncryptedData = JSON.stringify(encryptedStateData);
+  return Buffer.from(serializedEncryptedData).toString("base64url");
+}
+
+/**
+ * Decode and verify a state token from OAuth callback
+ */
+private async verifyStateToken(stateToken: string): Promise<AuthorizationData> {
+  try {
+    // Decode the base64url string back to the serialized Sensitive<string>
+    const serializedEncryptedData = Buffer.from(stateToken, "base64url").toString();
+    // Parse the serialized data back to the Sensitive<string> object
+    const encryptedStateData = JSON.parse(serializedEncryptedData);
+    // Decrypt using the vault service
+    const stateData = await this.vault.decrypt<AuthorizationData>(encryptedStateData);
+
+    if (!AuthorizationDataChecker.Check(stateData)) {
+      const errors = [...AuthorizationDataChecker.Errors(stateData)];
+      this.logger.error({ errors }, "Invalid state data structure");
+      throw new Error("Invalid authorization state format");
+    }
+
+    return stateData;
+  } catch (error) {
+    this.logger.error({ error }, "Failed to verify OAuth state token");
+    throw new Error("Invalid or expired authorization state");
+  }
+}
+
+  /**
+   * Generate an authorization URL for a specific provider
+   */
+  async getAuthorizationUrl(
+    userId: UserId,
+    provider: SocialOAuth2ProviderKind
+  ): Promise<string> {
+    const logger = this.logger.child({ fn: "getAuthorizationUrl", userId, provider });
+    logger.debug("Generating authorization URL");
+
+    const providerInstance = this.providers[provider];
+    if (!providerInstance) {
+      throw new Error(`Unsupported provider: ${provider}`);
+    }
+
+    const providerConfig = this.config.providers[provider];
+    if (!providerConfig) {
+      throw new Error(`Missing configuration for provider: ${provider}`);
+    }
+
+    // Generate secure state with user and provider info
+    const stateData: AuthorizationData = { userUuid: UserIds.toUUID(userId), provider };
+    const stateToken = await this.generateStateToken(stateData);
+
+    // Build callback URL from frontendBaseUrl
+    const callbackUrl = `${this.frontendBaseUrl}/api/auth/social/${provider}/callback`;
+
+    // Build authorization URL
+    const params = new URLSearchParams({
+      client_id: providerConfig.clientId,
+      redirect_uri: callbackUrl,
+      response_type: "code",
+      scope: providerInstance.scopes.map(s => s.id).join(providerInstance.scopeDelimiter),
+      state: stateToken,
+    });
+
+    // Add any provider-specific params
+    if (providerInstance.extraAuthParams) {
+      for (const [key, value] of Object.entries(providerInstance.extraAuthParams)) {
+        params.append(key, value);
+      }
+    }
+
+    const authUrl = `${providerInstance.authorizationUrl}?${params.toString()}`;
+    logger.debug({ authUrl }, "Generated authorization URL");
+
+    return authUrl;
+  }
+
+  /**
+   * Handle OAuth2 callback and create/update user identity
+   */
+  async handleCallback(
+    provider: SocialOAuth2ProviderKind,
+    code: string,
+    stateToken: string
+  ): Promise<{ userId: UserId }> {
+    const logger = this.logger.child({ fn: "handleCallback", provider });
+    logger.debug("Processing OAuth callback");
+
+    // Verify the state token
+    const stateData = await this.verifyStateToken(stateToken);
+
+    // Ensure the provider in the state matches the callback provider
+    if (stateData.provider !== provider) {
+      logger.error({
+        stateProvider: stateData.provider,
+        callbackProvider: provider
+      }, "Provider mismatch in OAuth callback");
+      throw new Error("Invalid authorization state: provider mismatch");
+    }
+
+    const providerInstance = this.providers[provider];
+    const providerConfig = this.config.providers[provider];
+
+    if (!providerInstance || !providerConfig) {
+      throw new Error(`Unsupported provider: ${provider}`);
+    }
+
+    try {
+      // Exchange authorization code for tokens
+      const tokenResponse = await this.exchangeCodeForToken(
+        code,
+        provider,
+        providerConfig.clientId,
+        providerConfig.clientSecret
+      );
+
+      if (!tokenResponse.access_token) {
+        throw new Error("No access token received from provider");
+      }
+
+      // Fetch user information from the provider
+      const userInfo = await providerInstance.getUserInfo(tokenResponse.access_token);
+
+      // Create or update user's social identity
+      const socialIdentity = await this.upsertSocialIdentity(
+        stateData.userUuid,
+        provider,
+        userInfo,
+        tokenResponse
+      );
+
+      return { userId: UserIds.toRichId(stateData.userUuid) };
+    } catch (error) {
+      logger.error({ error }, "Error handling OAuth callback");
+      throw new Error(`Authentication failed during OAuth callback`);
+    }
+  }
+
+  /**
+   * Exchange authorization code for access and refresh tokens
+   */
+  private async exchangeCodeForToken(
+    code: string,
+    provider: SocialOAuth2ProviderKind,
+    clientId: string,
+    clientSecret: string
+  ): Promise<OAuth2TokenData> {
+    const logger = this.logger.child({ fn: "exchangeCodeForToken", provider });
+    const providerInstance = this.providers[provider];
+
+    // Build callback URL from frontendBaseUrl
+    const callbackUrl = `${this.frontendBaseUrl}/api/auth/social/${provider}/callback`;
+
+    // Prepare token request
+    const params = new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      code,
+      grant_type: "authorization_code",
+      redirect_uri: callbackUrl,
+    });
+
+    logger.debug("Exchanging code for token");
+
+    const response = await this.fetch(providerInstance.tokenUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "application/json",
+      },
+      body: params.toString(),
+    });
+
+    if (!response.ok) {
+      let errorData = {};
+      try {
+        errorData = await response.json();
+      } catch (e) {
+        // Ignore JSON parsing errors
+      }
+
+      logger.error({
+        status: response.status,
+        error: errorData
+      }, "Failed to exchange code for token");
+
+      throw new Error(`Token exchange failed: ${response.status}`);
+    }
+
+    const tokenData = await response.json();
+    logger.debug("Successfully exchanged code for token");
+
+    return {
+      access_token: tokenData.access_token,
+      refresh_token: tokenData.refresh_token,
+      expires_in: tokenData.expires_in,
+      token_type: tokenData.token_type,
+      scope: tokenData.scope,
+    };
+  }
+
+  /**
+   * Create or update a user's social identity
+   */
+  private async upsertSocialIdentity(
+    userUuid: string,
+    provider: SocialOAuth2ProviderKind,
+    userInfo: NormalizedUserInfo,
+    tokenData: OAuth2TokenData
+  ): Promise<typeof USER_SOCIAL_OAUTH2_IDENTITIES.$inferSelect> {
+    const logger = this.logger.child({
+      fn: "upsertSocialIdentity",
+      userUuid,
+      provider,
+      providerId: userInfo.id
+    });
+
+    const providerInstance = this.providers[provider];
+
+    // Calculate token expiration date if expires_in is provided
+    const expiresAt = tokenData.expires_in
+      ? new Date(Date.now() + tokenData.expires_in * 1000)
+      : undefined;
+
+    // Create provider-specific metadata
+    const providerMetadata = {
+      kind: provider,
+      metadata: {
+        displayName: userInfo.displayName,
+        avatarUrl: userInfo.avatarUrl,
+        profileUrl: userInfo.profileUrl,
+      }
+    };
+
+    // Encrypt sensitive token data
+    const accessToken = await this.vault.encrypt(tokenData.access_token);
+    let refreshToken = undefined;
+    if (tokenData.refresh_token) {
+      refreshToken = await this.vault.encrypt(tokenData.refresh_token);
+    }
+
+    const encryptedMetadata = await this.vault.encrypt(JSON.stringify(providerMetadata));
+
+    // Check if identity already exists
+    const [existingIdentity] = await this.db.select().from(USER_SOCIAL_OAUTH2_IDENTITIES).where(and(
+      eq(USER_SOCIAL_OAUTH2_IDENTITIES.userUuid, userUuid),
+      eq(USER_SOCIAL_OAUTH2_IDENTITIES.provider, provider)
+    )).limit(1);
+
+    // Parse scope string into array if present
+    const scopes = tokenData.scope
+      ? tokenData.scope.split(providerInstance.scopeDelimiter)
+      : [];
+
+    if (existingIdentity) {
+      // Update existing identity
+      logger.debug("Updating existing social identity");
+
+      const [updatedIdentity] = await this.db
+        .update(USER_SOCIAL_OAUTH2_IDENTITIES)
+        .set({
+          providerId: userInfo.id,
+          providerUsername: userInfo.username,
+          accessToken,
+          refreshToken,
+          lastRefreshedAt: new Date(),
+          providerMetadata: encryptedMetadata,
+          expiresAt,
+          // Keep existing scopes if no new ones provided
+          scopes: scopes.length > 0 ? scopes : existingIdentity.scopes,
+        })
+        .where(eq(USER_SOCIAL_OAUTH2_IDENTITIES.userSocialOAuth2IdentityUuid, existingIdentity.userSocialOAuth2IdentityUuid))
+        .returning();
+
+      return updatedIdentity;
+    } else {
+      // Create new identity
+      logger.debug("Creating new social identity");
+
+      const [newIdentity] = await this.db
+        .insert(USER_SOCIAL_OAUTH2_IDENTITIES)
+        .values({
+          userUuid,
+          provider,
+          providerId: userInfo.id,
+          providerUsername: userInfo.username,
+          accessToken,
+          refreshToken,
+          lastRefreshedAt: new Date(),
+          providerMetadata: encryptedMetadata,
+          expiresAt,
+          scopes,
+        })
+        .returning();
+
+      return newIdentity;
+    }
+  }
+
+  /**
+   * Get all social identities for a user
+   */
+  async getSocialIdentities(userUuid: string): Promise<typeof USER_SOCIAL_OAUTH2_IDENTITIES.$inferSelect[]> {
+    const logger = this.logger.child({ fn: "getSocialIdentities", userUuid });
+
+    const identities = await this.db.select().from(USER_SOCIAL_OAUTH2_IDENTITIES).where(eq(USER_SOCIAL_OAUTH2_IDENTITIES.userUuid, userUuid));
+
+    logger.debug({ count: identities.length }, "Retrieved social identities");
+    return identities;
+  }
+
+  /**
+   * Delete a social identity
+   */
+  async deleteSocialIdentity(
+    userId: UserId,
+    identityUuid: StringUUID
+  ): Promise<void> {
+    const logger = this.logger.child({ fn: "deleteSocialIdentity", userId, identityUuid });
+
+    const result = await this.db
+      .delete(USER_SOCIAL_OAUTH2_IDENTITIES)
+      .where(
+        and(
+          eq(USER_SOCIAL_OAUTH2_IDENTITIES.userUuid, UserIds.toUUID(userId)),
+          eq(USER_SOCIAL_OAUTH2_IDENTITIES.userSocialOAuth2IdentityUuid, identityUuid)
+        )
+      );
+
+    logger.debug("Social identity deleted");
+  }
+
+  /**
+   * Refresh an expired access token
+   */
+  async refreshAccessToken(
+    identityUuid: StringUUID
+  ): Promise<typeof USER_SOCIAL_OAUTH2_IDENTITIES.$inferSelect> {
+    const logger = this.logger.child({ fn: "refreshAccessToken", identityUuid });
+
+    // Find the identity
+    const [identity] = await this.db.select().from(USER_SOCIAL_OAUTH2_IDENTITIES).where(eq(USER_SOCIAL_OAUTH2_IDENTITIES.userSocialOAuth2IdentityUuid, identityUuid)).limit(1);
+
+    if (!identity) {
+      throw new Error("Social identity not found");
+    }
+
+    // Check if refresh token exists
+    if (!identity.refreshToken) {
+      throw new Error("No refresh token available");
+    }
+
+    const provider = this.providers[identity.provider];
+    const providerConfig = this.config.providers[identity.provider];
+
+    if (!provider || !providerConfig) {
+      throw new Error(`Unsupported provider: ${identity.provider}`);
+    }
+
+    // Decrypt refresh token
+    const refreshToken = await this.vault.decrypt<string>(identity.refreshToken);
+
+    // Build refresh token request
+    const params = new URLSearchParams({
+      client_id: providerConfig.clientId,
+      client_secret: providerConfig.clientSecret,
+      refresh_token: refreshToken,
+      grant_type: "refresh_token",
+    });
+
+    logger.debug("Refreshing access token");
+
+    const response = await this.fetch(provider.tokenUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "application/json",
+      },
+      body: params.toString(),
+    });
+
+    if (!response.ok) {
+      logger.error({
+        status: response.status,
+        provider: identity.provider
+      }, "Failed to refresh token");
+      throw new Error("Failed to refresh access token");
+    }
+
+    const tokenData: OAuth2TokenData = await response.json();
+
+    // Calculate new expiration time
+    const expiresAt = tokenData.expires_in
+      ? new Date(Date.now() + tokenData.expires_in * 1000)
+      : undefined;
+
+    // Encrypt new tokens
+    const accessToken = await this.vault.encrypt(tokenData.access_token);
+    let newRefreshToken = identity.refreshToken;
+    if (tokenData.refresh_token) {
+      newRefreshToken = await this.vault.encrypt(tokenData.refresh_token);
+    }
+
+    // Parse scope string into array if present
+    const scopes = tokenData.scope && provider
+      ? tokenData.scope.split(provider.scopeDelimiter)
+      : identity.scopes;
+
+    // Update identity with new tokens
+    const [updatedIdentity] = await this.db
+      .update(USER_SOCIAL_OAUTH2_IDENTITIES)
+      .set({
+        accessToken,
+        refreshToken: newRefreshToken,
+        lastRefreshedAt: new Date(),
+        expiresAt,
+        scopes,
+      })
+      .where(eq(USER_SOCIAL_OAUTH2_IDENTITIES.userSocialOAuth2IdentityUuid, identityUuid))
+      .returning();
+
+    logger.debug("Successfully refreshed access token");
+    return updatedIdentity;
+  }
+}

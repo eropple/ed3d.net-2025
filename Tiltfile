@@ -63,12 +63,6 @@ k8s_resource('localdev-minio',
         link("http://localhost:" + os.environ['MINIO_UI_PORT'], "Minio Console")
     ],
     labels=["98-svc"])
-k8s_resource('localdev-keycloak',
-    port_forwards=[os.environ['KEYCLOAK_PORT'] + ":8080"],
-    links=[
-        link("http://localhost:" + os.environ['KEYCLOAK_PORT'], "Keycloak UI")
-    ],
-    labels=["98-svc"])
 
 
 # ------------------------------
@@ -91,12 +85,6 @@ local_resource("wait-for-redis",
     resource_deps=["localdev-redis"],
     labels=["99-meta"])
 
-local_resource("wait-for-keycloak",
-    allow_parallel=True,
-    cmd="bash ./_dev-env/scripts/wait-for-keycloak.bash",
-    resource_deps=["localdev-keycloak"],
-    labels=["99-meta"])
-
 # local_resource("ensure-minio",
 #     allow_parallel=True,
 #     cmd="bash ./_dev-env/scripts/ensure-minio.bash",
@@ -109,7 +97,6 @@ local_resource("wait-for-dependencies",
         "wait-for-postgres",
         "wait-for-temporal",
         "wait-for-redis",
-        "wait-for-keycloak",
         # "ensure-minio",
     ],
     labels=["99-meta"])
@@ -169,7 +156,6 @@ if tilt_runmode == 'dev-in-tilt':
             link(os.environ['BASE_URL'], "Site Home"),
             link("http://local.drizzle.studio:" + studio_port, "Drizzle Studio"),
             link("http://localhost:" + os.environ['MAILPIT_PORT'], "Mailpit UI"),
-            link("http://localhost:" + os.environ['KEYCLOAK_PORT'], "Keycloak UI"),
             link("http://localhost:" + os.environ['TEMPORAL__UI_PORT'], "Temporal UI")
         ],
         labels=["00-app"])

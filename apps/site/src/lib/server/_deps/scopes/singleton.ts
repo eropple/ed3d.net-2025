@@ -1,3 +1,4 @@
+import type { NodeOAuthClient } from "@atproto/oauth-client-node";
 import { createClient, type SanityClient } from "@sanity/client";
 import {
   asFunction,
@@ -11,13 +12,16 @@ import type { Logger } from "pino";
 import type { StaleWhileRevalidate } from "stale-while-revalidate-cache";
 import type { DeepReadonly } from "utility-types";
 
-import { buildRedisSWRCache } from "../../swr/redis.js";
+
+import { VaultKeyStore } from "../../vault/keystore.js";
+import { VaultService } from "../../vault/service.js";
 
 import type { AppConfig } from "$lib/server/_config/types";
+import { createATProtoOAuthClient } from "$lib/server/auth/atproto/client-factory.js";
 import { buildDbPoolFromConfig, buildDrizzle } from "$lib/server/db/builders.js";
 import type { Drizzle, DrizzleRO } from "$lib/server/db/types";
-import { type AllSanitySchemaTypes, type internalGroqTypeReferenceTo } from "$lib/server/sanity/sanity-content-types.js";
 import { buildMemorySwrCache } from "$lib/server/swr/memory";
+import { buildRedisSWRCache } from "$lib/server/swr/redis.js";
 import { buildTemporalConnection, TemporalClientService, type TemporalClient } from "$lib/server/temporal";
 import { loggedFetch, type FetchFn } from "$lib/server/utils/fetch";
 
@@ -47,6 +51,10 @@ export type AppSingletonCradle = {
   sanityDirect: SanityClient;
 
   // domain objects too expensive to build on request go here
+  vaultKeyStore: VaultKeyStore;
+  vault: VaultService;
+
+  atprotoOAuthClient: Promise<NodeOAuthClient>;
 };
 
 export async function configureBaseAwilixContainer(
@@ -127,7 +135,26 @@ export async function configureBaseAwilixContainer(
       });
     }).singleton(),
 
+    vaultKeyStore: asFunction(({ config }: AppSingletonCradle) => {
+      return new VaultKeyStore({
+        primaryKey: config.vault.primaryKey,
+        legacyKeys: [...config.vault.legacyKeys || []],
+      });
+    }).singleton(),
+
     // domain objects too expensive to build on request go here
+    atprotoOAuthClient: asFunction(async ({ logger, db, vault, config }) => {
+      return createATProtoOAuthClient(
+        logger,
+        db,
+        vault,
+        config.atproto
+      );
+    }).singleton(),
+
+    vault: asFunction(({ vaultKeyStore }: AppSingletonCradle) => {
+      return new VaultService(vaultKeyStore);
+    }).singleton(),
   });
 
   return container;

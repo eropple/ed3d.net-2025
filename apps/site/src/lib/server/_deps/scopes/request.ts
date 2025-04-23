@@ -1,6 +1,9 @@
 import { asFunction, asValue, type AwilixContainer } from "awilix";
 import { makeSafeQueryRunner } from "groqd";
 
+import { ATProtoService } from "../../auth/atproto/service.js";
+import { AuthService } from "../../auth/service.js";
+import { SocialIdentityService } from "../../auth/social-identity/service.js";
 import { BlogPostService } from "../../domain/blogs/service.js";
 import { UserService } from "../../domain/users/service.js";
 
@@ -13,6 +16,11 @@ export type AppRequestCradle = AppSingletonCradle & {
   // Sanity query runners
   sanityQueryCdn: ReturnType<typeof makeSafeQueryRunner>;
   sanityQueryDirect: ReturnType<typeof makeSafeQueryRunner>;
+
+  // Auth services
+  atprotoService: ATProtoService;
+  socialIdentityService: SocialIdentityService;
+  authService: AuthService;
 }
 
 export async function configureRequestScope(
@@ -79,6 +87,51 @@ export async function configureRequestScope(
         sanityQueryCdn,
         sanityQueryDirect,
         config.sanity.content
+      );
+    }),
+
+    // Social identity service
+    socialIdentityService: asFunction(({ logger, db, vault, fetch, config }: AppRequestCradle) => {
+      return new SocialIdentityService(
+        logger,
+        db,
+        vault,
+        config.auth.socialIdentity,
+        fetch,
+        config.urls.frontendBaseUrl
+      );
+    }),
+
+    // ATProto service
+    atprotoService: asFunction(({
+      logger,
+      db,
+      dbRO,
+      vault,
+      fetch,
+      atprotoOAuthClient
+    }: AppRequestCradle) => {
+      return new ATProtoService(logger, db, dbRO, vault, fetch, atprotoOAuthClient);
+    }),
+
+    // Main auth service
+    authService: asFunction(({
+      logger,
+      db,
+      dbRO,
+      vault,
+      users,
+      socialIdentityService,
+      atprotoService
+    }: AppRequestCradle) => {
+      return new AuthService(
+        logger,
+        db,
+        dbRO,
+        users,
+        socialIdentityService,
+        atprotoService,
+        vault
       );
     }),
   });
