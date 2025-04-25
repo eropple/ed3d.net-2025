@@ -3,6 +3,7 @@ import { makeSafeQueryRunner } from "groqd";
 
 import { ATProtoService } from "../../auth/atproto/service.js";
 import { AuthService } from "../../auth/service.js";
+import { SessionService } from "../../auth/session/service.js";
 import { SocialIdentityService } from "../../auth/social-identity/service.js";
 import { BlogPostService } from "../../domain/blogs/service.js";
 import { UserService } from "../../domain/users/service.js";
@@ -18,9 +19,10 @@ export type AppRequestCradle = AppSingletonCradle & {
   sanityQueryDirect: ReturnType<typeof makeSafeQueryRunner>;
 
   // Auth services
+  authService: AuthService;
   atprotoService: ATProtoService;
   socialIdentityService: SocialIdentityService;
-  authService: AuthService;
+  sessionService: SessionService;
 }
 
 export async function configureRequestScope(
@@ -133,6 +135,11 @@ export async function configureRequestScope(
         atprotoService,
         vault
       );
+    }),
+
+    // Session service
+    sessionService: asFunction(({ logger, db, dbRO, config, users }: AppRequestCradle) => {
+      return new SessionService(logger, db, dbRO, config.auth, users);
     }),
   });
 

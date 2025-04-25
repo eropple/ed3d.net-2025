@@ -178,3 +178,31 @@ export const USER_ATPROTO_IDENTITIES = pgTable("user_atproto_identities", {
   ...TIMESTAMPS_MIXIN,
 });
 export type DBUserAtprotoIdentity = typeof USER_ATPROTO_IDENTITIES.$inferSelect;
+
+export const USER_SESSIONS = pgTable("user_sessions", {
+  sessionUuid: ULIDAsUUID().primaryKey(),
+
+  userUuid: uuid()
+    .references(() => USERS.userUuid)
+    .notNull(),
+
+  tokenHash: text("token_hash").notNull(),
+
+  expiresAt: timestamp({
+    withTimezone: true,
+    mode: "date",
+  }),
+
+  lastAccessedAt: timestamp({
+    withTimezone: true,
+    mode: "date",
+  }).notNull().defaultNow(),
+
+  revokedAt: timestamp({
+    withTimezone: true,
+    mode: "date",
+  }),
+
+  ...TIMESTAMPS_MIXIN,
+});
+export type DBUserSession = typeof USER_SESSIONS.$inferSelect;
