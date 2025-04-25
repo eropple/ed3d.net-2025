@@ -3,11 +3,23 @@
   import "@fontsource/inconsolata";
   import "@fontsource/lora";
   import "@fontsource/noto-sans-display";
+  import { onMount } from 'svelte';
+  import { userStore } from '$lib/stores/user';
 
 	import HeaderNav from '$lib/components/HeaderNav.svelte';
 	import Footer from '$lib/components/Footer.svelte';
 
-	let { children } = $props();
+	let { data, children } = $props();
+
+	// Initialize the user store with the data from the server
+	onMount(() => {
+		userStore.setUser(data.user);
+	});
+
+	// Update the store whenever the user data changes
+	$effect(() => {
+		userStore.setUser(data.user);
+	});
 </script>
 
 <HeaderNav />

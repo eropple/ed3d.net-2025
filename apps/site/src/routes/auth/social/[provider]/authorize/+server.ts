@@ -8,21 +8,17 @@ export const GET: RequestHandler = async ({ params, locals, url }) => {
   const logger = locals.logger.child({ fn: "/auth/social/[provider]/authorize/+server.ts:GET" });
   const { provider } = params;
 
-  // Check if user is logged in
-  if (!locals.user) {
-    throw redirect(302, `/login?callback=/auth/social/${provider}/authorize${url.search}`);
-  }
-
   // Validate provider
   if (!SocialOAuth2ProviderKindChecker.Check(provider)) {
     throw error(400, `Unsupported provider: ${provider}`);
   }
 
   try {
-    const authUrl = await locals.deps.socialIdentityService.getAuthorizationUrl(
-      locals.user.userId,
-      provider
-    );
+    // Get user ID if user is logged in, undefined otherwise
+    const userId = locals.user?.userId;
+
+    // Start social auth flow
+    const authUrl = await locals.deps.authService.startSocialAuth(userId, provider);
 
     throw redirect(302, authUrl);
   } catch (err) {

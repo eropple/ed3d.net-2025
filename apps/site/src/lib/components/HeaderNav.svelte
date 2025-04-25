@@ -3,6 +3,7 @@
   import { SITE_NAME } from '$lib/constants';
   import { onMount } from 'svelte';
   import { clsx } from 'clsx';
+  import UserWidgetMounter from './UserWidget/UserWidgetMounter.svelte';
 
   let isOpen = false;
 
@@ -92,6 +93,9 @@
           {/if}
         </button>
       </div>
+      <div class="flex items-center">
+        <UserWidgetMounter />
+      </div>
     </div>
   </div>
   {#if isOpen}
@@ -113,6 +117,9 @@
         >
           Blog
         </a>
+      </div>
+      <div class="flex items-center">
+        <UserWidgetMounter />
       </div>
     </div>
   {/if}

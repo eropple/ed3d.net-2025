@@ -14,6 +14,7 @@ import {
   type SocialOAuth2ProviderKind
 } from "../../db/schema/index.js";
 import type { Drizzle } from "../../db/types.js";
+import type { UserService } from "../../domain/users/service.js";
 import type { FetchFn } from "../../utils/fetch.js";
 import type { VaultService } from "../../vault/service.js";
 
@@ -24,7 +25,7 @@ import { GoogleProvider } from "./providers/google.js";
 
 // TypeBox schema for authorization data
 export const AuthorizationDataSchema = Type.Object({
-  userUuid: StringUUID,
+  userUuid: Type.Optional(StringUUID),
   provider: Type.Union([
     ...SOCIAL_OAUTH2_PROVIDER_KIND.enumValues.map(provider => Type.Literal(provider))
   ])
@@ -51,6 +52,7 @@ export class SocialIdentityService {
     private readonly logger: Logger,
     private readonly db: Drizzle,
     private readonly vault: VaultService,
+    private readonly userService: UserService,
     private readonly config: SocialIdentityConfig,
     private readonly fetch: FetchFn,
     private readonly frontendBaseUrl: string
@@ -105,7 +107,7 @@ private async verifyStateToken(stateToken: string): Promise<AuthorizationData> {
    * Generate an authorization URL for a specific provider
    */
   async getAuthorizationUrl(
-    userId: UserId,
+    userId: UserId | undefined,
     provider: SocialOAuth2ProviderKind
   ): Promise<string> {
     const logger = this.logger.child({ fn: "getAuthorizationUrl", userId, provider });
@@ -121,8 +123,13 @@ private async verifyStateToken(stateToken: string): Promise<AuthorizationData> {
       throw new Error(`Missing configuration for provider: ${provider}`);
     }
 
-    // Generate secure state with user and provider info
-    const stateData: AuthorizationData = { userUuid: UserIds.toUUID(userId), provider };
+    // Generate secure state with provider info and user info if available
+    const stateData: AuthorizationData = {
+      provider,
+      // Only include userUuid if userId is provided
+      ...(userId ? { userUuid: UserIds.toUUID(userId) } : {})
+    };
+
     const stateToken = await this.generateStateToken(stateData);
 
     // Build callback URL from frontendBaseUrl
@@ -196,15 +203,66 @@ private async verifyStateToken(stateToken: string): Promise<AuthorizationData> {
       // Fetch user information from the provider
       const userInfo = await providerInstance.getUserInfo(tokenResponse.access_token);
 
-      // Create or update user's social identity
-      const socialIdentity = await this.upsertSocialIdentity(
-        stateData.userUuid,
-        provider,
-        userInfo,
-        tokenResponse
-      );
+      // Use a transaction for the database operations
+      return await this.db.transaction(async (tx) => {
+        let userUuid: StringUUID;
+        let userId: UserId;
 
-      return { userId: UserIds.toRichId(stateData.userUuid) };
+        if (stateData.userUuid) {
+          // Linking to existing user
+          userUuid = stateData.userUuid;
+          logger.debug({ userUuid }, "Linking identity to existing user");
+
+          // Verify the user exists
+          const user = await this.userService.getByUserUUID(userUuid, tx);
+          if (!user) {
+            throw new Error("User not found");
+          }
+          userId = user.userId;
+        } else {
+          // This is a new user flow - create or find user by email
+          logger.debug({ email: userInfo.email }, "Creating or finding user by email");
+
+          // First check if user with this email already exists
+          let user = null;
+          if (userInfo.email) {
+            user = await this.userService.getByEmail(userInfo.email, tx);
+          }
+
+          if (user) {
+            // User exists, use their UUID
+            userUuid = UserIds.toUUID(user.userId);
+            userId = user.userId;
+            logger.debug({ userUuid }, "Found existing user by email");
+          } else {
+            // Generate a username from display name or username
+            const baseUsername = userInfo.displayName || userInfo.username || "user";
+            const username = await this.userService.generateUniqueUsername(baseUsername, tx);
+
+            // Create new user
+            const newUser = await this.userService.createUser({
+              email: userInfo.email || `${userInfo.id}@${provider}.placeholder.com`,
+              username,
+              emailVerified: provider === "google" && !!userInfo.email
+            }, tx);
+
+            userId = newUser.userId;
+            userUuid = UserIds.toUUID(userId);
+            logger.debug({ userUuid }, "Created new user");
+          }
+        }
+
+        // Create or update the social identity
+        await this.upsertSocialIdentity(
+          userUuid,
+          provider,
+          userInfo,
+          tokenResponse,
+          tx
+        );
+
+        return { userId };
+      });
     } catch (error) {
       logger.error({ error }, "Error handling OAuth callback");
       throw new Error(`Authentication failed during OAuth callback`);
@@ -281,7 +339,8 @@ private async verifyStateToken(stateToken: string): Promise<AuthorizationData> {
     userUuid: string,
     provider: SocialOAuth2ProviderKind,
     userInfo: NormalizedUserInfo,
-    tokenData: OAuth2TokenData
+    tokenData: OAuth2TokenData,
+    executor: Drizzle = this.db
   ): Promise<typeof USER_SOCIAL_OAUTH2_IDENTITIES.$inferSelect> {
     const logger = this.logger.child({
       fn: "upsertSocialIdentity",
@@ -317,7 +376,7 @@ private async verifyStateToken(stateToken: string): Promise<AuthorizationData> {
     const encryptedMetadata = await this.vault.encrypt(JSON.stringify(providerMetadata));
 
     // Check if identity already exists
-    const [existingIdentity] = await this.db.select().from(USER_SOCIAL_OAUTH2_IDENTITIES).where(and(
+    const [existingIdentity] = await executor.select().from(USER_SOCIAL_OAUTH2_IDENTITIES).where(and(
       eq(USER_SOCIAL_OAUTH2_IDENTITIES.userUuid, userUuid),
       eq(USER_SOCIAL_OAUTH2_IDENTITIES.provider, provider)
     )).limit(1);
@@ -331,7 +390,7 @@ private async verifyStateToken(stateToken: string): Promise<AuthorizationData> {
       // Update existing identity
       logger.debug("Updating existing social identity");
 
-      const [updatedIdentity] = await this.db
+      const [updatedIdentity] = await executor
         .update(USER_SOCIAL_OAUTH2_IDENTITIES)
         .set({
           providerId: userInfo.id,
@@ -352,7 +411,7 @@ private async verifyStateToken(stateToken: string): Promise<AuthorizationData> {
       // Create new identity
       logger.debug("Creating new social identity");
 
-      const [newIdentity] = await this.db
+      const [newIdentity] = await executor
         .insert(USER_SOCIAL_OAUTH2_IDENTITIES)
         .values({
           userUuid,

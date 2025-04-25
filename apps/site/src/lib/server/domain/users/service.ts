@@ -155,4 +155,64 @@ export class UserService {
       avatarUrl: UserService.getGravatarUrl(dbUser.email),
     };
   }
+
+  /**
+   * Create a new user
+   */
+  async createUser(userData: {
+    email: string;
+    username: string;
+    emailVerified?: boolean;
+  }, executor: Drizzle = this.db): Promise<UserPrivate> {
+    this.logger.debug({ ...userData }, "Creating new user");
+
+    const [dbUser] = await executor
+      .insert(USERS)
+      .values({
+        email: userData.email,
+        username: userData.username,
+        emailVerifiedAt: userData.emailVerified ? new Date() : null,
+      })
+      .returning();
+
+    if (!dbUser) {
+      throw new Error("Failed to create user");
+    }
+
+    return this._dbUserToUserPrivate(dbUser);
+  }
+
+  /**
+   * Generate a unique username from a display name
+   */
+  async generateUniqueUsername(
+    baseUsername: string,
+    executor: DrizzleRO = this.dbRO
+  ): Promise<string> {
+    // Clean up the username - remove special chars and convert to lowercase
+    let username = baseUsername.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+    // Check if username exists
+    let userWithUsername = await this.getByUsername(username, executor);
+
+    // If username exists, add a random suffix until we find a unique one
+    if (userWithUsername) {
+      const maxAttempts = 5;
+      let attempts = 0;
+
+      while (userWithUsername && attempts < maxAttempts) {
+        const randomSuffix = Math.floor(Math.random() * 10000).toString().padStart(4, "0");
+        username = `${baseUsername}${randomSuffix}`;
+        userWithUsername = await this.getByUsername(username, executor);
+        attempts++;
+      }
+
+      // If we still couldn't find a unique username after max attempts
+      if (userWithUsername) {
+        username = `${baseUsername}${Date.now().toString().slice(-8)}`;
+      }
+    }
+
+    return username;
+  }
 }

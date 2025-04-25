@@ -148,7 +148,8 @@ export async function configureBaseAwilixContainer(
         logger,
         db,
         vault,
-        config.atproto
+        config.auth.atproto,
+        config.urls,
       );
     }).singleton(),
 

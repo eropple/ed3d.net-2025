@@ -2,23 +2,30 @@ import { Agent } from "@atproto/api";
 import type { ProfileViewDetailed } from "@atproto/api/dist/client/types/app/bsky/actor/defs.js";
 import { JoseKey } from "@atproto/jwk-jose";
 import { type NodeOAuthClient, type NodeSavedSession, type NodeSavedState } from "@atproto/oauth-client-node";
+import { Type, type Static } from "@sinclair/typebox";
+import { TypeCompiler } from "@sinclair/typebox/compiler";
 import { eq } from "drizzle-orm";
 import type { Logger } from "pino";
 
-import type { StringUUID } from "../../../ext/typebox/index.js";
+import { UserIds } from "../../../domain/users/ids.js";
+import { StringUUID } from "../../../ext/typebox/index.js";
 import { ATPROTO_SESSIONS, ATPROTO_STATES, USER_ATPROTO_IDENTITIES } from "../../db/schema/index.js";
 import type { Drizzle, DrizzleRO } from "../../db/types.js";
+import type { UserService } from "../../domain/users/service.js";
 import type { FetchFn } from "../../utils/fetch.js";
 import type { VaultService } from "../../vault/service.js";
 import type { PrivateKey } from "../jwks.js";
 
 import type { ATProtoConfig } from "./config.js";
 
+// Instead of interface, use TypeBox for validation
+export const ATProtoAuthStateSchema = Type.Object({
+  userUuid: Type.Optional(StringUUID),
+  handle: Type.String()
+});
 
-export interface ATProtoAuthState {
-  userUuid: StringUUID;
-  handle: string;
-}
+export type ATProtoAuthState = Static<typeof ATProtoAuthStateSchema>;
+export const ATProtoAuthStateChecker = TypeCompiler.Compile(ATProtoAuthStateSchema);
 
 export class ATProtoService {
   private readonly logger: Logger;
@@ -28,6 +35,7 @@ export class ATProtoService {
     private readonly db: Drizzle,
     private readonly dbRO: DrizzleRO,
     private readonly vault: VaultService,
+    private readonly userService: UserService,
     private readonly fetch: FetchFn,
     private readonly oauthClient: Promise<NodeOAuthClient>
   ) {
@@ -37,12 +45,16 @@ export class ATProtoService {
   /**
    * Generate an authorization URL for ATProto
    */
-  async getAuthorizationUrl(userUuid: StringUUID, handle: string): Promise<string> {
+  async getAuthorizationUrl(userUuid: StringUUID | undefined, handle: string): Promise<string> {
     const logger = this.logger.child({ fn: "getAuthorizationUrl", userUuid, handle });
     logger.debug("Generating ATProto authorization URL");
 
     // Generate and encrypt state with user info
-    const stateData: ATProtoAuthState = { userUuid, handle };
+    const stateData: ATProtoAuthState = {
+      handle,
+      // Only include userUuid if it's defined
+      ...(userUuid ? { userUuid } : {})
+    };
     const stateToken = await this.generateStateToken(stateData);
 
     try {
@@ -91,15 +103,60 @@ export class ATProtoService {
       // Get profile data
       const profile = await agent.getProfile({ actor: session.did });
 
-      // Store identity
-      await this.upsertATProtoIdentity(
-        stateData.userUuid,
-        session.did,
-        profile.data.handle,
-        { ...profile.data }
-      );
+      // Use a transaction for database operations
+      return await this.db.transaction(async (tx) => {
+        let userUuid: StringUUID;
 
-      return { userUuid: stateData.userUuid };
+        if (stateData.userUuid) {
+          // Linking to existing user
+          userUuid = stateData.userUuid;
+          logger.debug({ userUuid }, "Linking ATProto identity to existing user");
+
+          // Verify the user exists
+          const user = await this.userService.getByUserUUID(userUuid, tx);
+          if (!user) {
+            throw new Error("User not found");
+          }
+        } else {
+          // This is a new user flow
+          logger.debug({ handle: profile.data.handle, did: session.did }, "Creating new user from ATProto");
+
+          // Check if user with the handle email already exists
+          const email = `${profile.data.handle}@atproto.user`;
+          const user = await this.userService.getByEmail(email, tx);
+
+          if (user) {
+            // User exists, use their UUID
+            userUuid = UserIds.toUUID(user.userId);
+            logger.debug({ userUuid }, "Found existing user by ATProto email");
+          } else {
+            // Generate username from handle
+            const baseUsername = profile.data.handle.replace(/\./g, "");
+            const username = await this.userService.generateUniqueUsername(baseUsername, tx);
+
+            // Create new user
+            const newUser = await this.userService.createUser({
+              email,
+              username,
+              emailVerified: false // ATProto doesn't necessarily verify email
+            }, tx);
+
+            userUuid = UserIds.toUUID(newUser.userId);
+            logger.debug({ userUuid }, "Created new user from ATProto identity");
+          }
+        }
+
+        // Store identity using transaction
+        await this.upsertATProtoIdentity(
+          userUuid,
+          session.did,
+          profile.data.handle,
+          { ...profile.data },
+          tx
+        );
+
+        return { userUuid };
+      });
     } catch (error) {
       logger.error({ error }, "Error handling ATProto callback");
       throw new Error("ATProto authentication failed");
@@ -113,7 +170,8 @@ export class ATProtoService {
     userUuid: StringUUID,
     did: string,
     handle: string,
-    profileData: Record<string, unknown>
+    profileData: Record<string, unknown>,
+    executor: Drizzle = this.db
   ) {
     const logger = this.logger.child({
       fn: "upsertATProtoIdentity",
@@ -126,13 +184,13 @@ export class ATProtoService {
     const encryptedProfileData = await this.vault.encrypt(JSON.stringify(profileData));
 
     // Check if identity already exists
-    const [existingIdentity] = await this.db.select().from(USER_ATPROTO_IDENTITIES).where(eq(USER_ATPROTO_IDENTITIES.userUuid, userUuid)).limit(1);
+    const [existingIdentity] = await executor.select().from(USER_ATPROTO_IDENTITIES).where(eq(USER_ATPROTO_IDENTITIES.userUuid, userUuid)).limit(1);
 
     if (existingIdentity) {
       // Update existing identity
       logger.debug("Updating existing ATProto identity");
 
-      const [updatedIdentity] = await this.db
+      const [updatedIdentity] = await executor
         .update(USER_ATPROTO_IDENTITIES)
         .set({
           did,
@@ -147,7 +205,7 @@ export class ATProtoService {
       // Create new identity
       logger.debug("Creating new ATProto identity");
 
-      const [newIdentity] = await this.db
+      const [newIdentity] = await executor
         .insert(USER_ATPROTO_IDENTITIES)
         .values({
           userUuid,
@@ -201,8 +259,10 @@ export class ATProtoService {
       const encryptedStateData = JSON.parse(serializedEncryptedData);
       const stateData = await this.vault.decrypt<ATProtoAuthState>(encryptedStateData);
 
-      if (!stateData || !stateData.userUuid || !stateData.handle) {
-        throw new Error("Invalid ATProto state data");
+      if (!ATProtoAuthStateChecker.Check(stateData)) {
+        const errors = [...ATProtoAuthStateChecker.Errors(stateData)];
+        this.logger.error({ errors }, "Invalid ATProto state data structure");
+        throw new Error("Invalid ATProto state format");
       }
 
       return stateData;

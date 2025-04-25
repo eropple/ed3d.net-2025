@@ -32,23 +32,28 @@ export class AuthService {
   }
 
   /**
-   * Start social authentication flow
+   * Start social authentication flow for both new and existing users
    */
   async startSocialAuth(
-    userId: UserId,
+    userId: UserId | null,
     provider: SocialOAuth2ProviderKind
   ): Promise<string> {
     const logger = this.logger.child({ fn: "startSocialAuth", userId, provider });
 
-    // Ensure user exists
-    const user = await this.userService.getById(userId);
-    if (!user) {
-      logger.error({ userUuid: userId }, "User not found for social auth");
-      throw new Error("User not found");
+    // If userId is provided, ensure the user exists
+    if (userId) {
+      const user = await this.userService.getById(userId);
+      if (!user) {
+        logger.error({ userUuid: userId }, "User not found for social auth");
+        throw new Error("User not found");
+      }
     }
 
+    // Create temporary user UUID for the auth flow if userId is null
+    const userUuid = userId ? userId : UserIds.toRichId(crypto.randomUUID());
+
     // Generate authorization URL
-    return this.socialIdentityService.getAuthorizationUrl(userId, provider);
+    return this.socialIdentityService.getAuthorizationUrl(userUuid, provider);
   }
 
   /**
@@ -162,22 +167,25 @@ export class AuthService {
   }
 
   /**
-   * Start ATProto authentication flow
+   * Start ATProto authentication flow for both new and existing users
    */
   async startATProtoAuth(
-    userId: UserId,
+    userId: UserId | undefined,
     handle: string
   ): Promise<string> {
     const logger = this.logger.child({ fn: "startATProtoAuth", userId, handle });
 
-    // Ensure user exists
-    const user = await this.userService.getById(userId);
-    if (!user) {
-      logger.error({ userId }, "User not found for ATProto auth");
-      throw new Error("User not found");
+    // If userId is provided, ensure the user exists
+    if (userId) {
+      const user = await this.userService.getById(userId);
+      if (!user) {
+        logger.error({ userId }, "User not found for ATProto auth");
+        throw new Error("User not found");
+      }
     }
 
-    const userUuid = UserIds.toUUID(userId);
+    // Use the user UUID if provided, otherwise it will be undefined to indicate new user flow
+    const userUuid = userId ? UserIds.toUUID(userId) : undefined;
 
     // Generate authorization URL
     return this.atprotoService.getAuthorizationUrl(userUuid, handle);

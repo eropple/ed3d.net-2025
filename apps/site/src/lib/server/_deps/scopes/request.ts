@@ -93,11 +93,12 @@ export async function configureRequestScope(
     }),
 
     // Social identity service
-    socialIdentityService: asFunction(({ logger, db, vault, fetch, config }: AppRequestCradle) => {
+    socialIdentityService: asFunction(({ logger, db, vault, users, fetch, config }: AppRequestCradle) => {
       return new SocialIdentityService(
         logger,
         db,
         vault,
+        users,
         config.auth.socialIdentity,
         fetch,
         config.urls.frontendBaseUrl
@@ -110,10 +111,11 @@ export async function configureRequestScope(
       db,
       dbRO,
       vault,
+      users,
       fetch,
       atprotoOAuthClient
     }: AppRequestCradle) => {
-      return new ATProtoService(logger, db, dbRO, vault, fetch, atprotoOAuthClient);
+      return new ATProtoService(logger, db, dbRO, vault, users, fetch, atprotoOAuthClient);
     }),
 
     // Main auth service
