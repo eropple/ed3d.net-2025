@@ -143,11 +143,12 @@ export async function configureBaseAwilixContainer(
     }).singleton(),
 
     // domain objects too expensive to build on request go here
-    atprotoOAuthClient: asFunction(async ({ logger, db, vault, config }) => {
+    atprotoOAuthClient: asFunction(async ({ logger, db, vault, config, fetch }) => {
       return createATProtoOAuthClient(
         logger,
         db,
         vault,
+        fetch,
         config.auth.atproto,
         config.urls,
       );
@@ -157,6 +158,10 @@ export async function configureBaseAwilixContainer(
       return new VaultService(vaultKeyStore);
     }).singleton(),
   });
+
+  // we need to kick this forward to ensure the client is initialized
+  // and errors throw at app startup
+  await container.cradle.atprotoOAuthClient;
 
   return container;
 }

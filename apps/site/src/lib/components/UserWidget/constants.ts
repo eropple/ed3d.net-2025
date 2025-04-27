@@ -14,10 +14,5 @@ export const AUTH_METHODS: AuthMethod[] = [
     id: "google",
     label: "Google",
     icon: "fa-brands fa-google"
-  },
-  {
-    id: "bluesky",
-    label: "Bluesky",
-    icon: "fa-brands fa-square"
   }
 ];

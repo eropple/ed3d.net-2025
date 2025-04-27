@@ -79,7 +79,7 @@
     <div class="mb-6">
       <h3 class="text-lg font-medium mb-3">Your connections</h3>
 
-      {#if data.connections.social.length === 0 && !data.connections.atproto}
+      {#if data.connections.social.length === 0}
         <p class="text-gray-500">You don't have any connected accounts yet.</p>
       {:else}
         <ul class="space-y-3">
@@ -104,22 +104,6 @@
               </div>
             </li>
           {/each}
-
-          {#if data.connections.atproto}
-            <li class="flex items-center">
-              <Avatar.Root class="h-8 w-8 mr-3 bg-gray-100 rounded-full flex items-center justify-center">
-                <Avatar.Fallback>
-                  <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                    <circle cx="12" cy="12" r="10"/>
-                  </svg>
-                </Avatar.Fallback>
-              </Avatar.Root>
-              <div>
-                <p class="font-medium">Bluesky (ATProto)</p>
-                <p class="text-sm text-gray-500">Connected as {data.connections.atproto.handle}</p>
-              </div>
-            </li>
-          {/if}
         </ul>
       {/if}
     </div>
@@ -149,25 +133,6 @@
             </span>
             <span>Connect with Google</span>
           </a>
-        {/if}
-
-        {#if data.missingConnections.atproto}
-          <button
-            onclick={() => {
-              const handle = prompt('Enter your Bluesky handle:');
-              if (handle) {
-                window.location.href = `/auth/atproto/authorize?handle=${handle}`;
-              }
-            }}
-            class="flex items-center p-3 border border-gray-300 rounded-md hover:bg-gray-50"
-          >
-            <span class="w-8 h-8 mr-3 bg-gray-100 rounded-full flex items-center justify-center">
-              <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                <circle cx="12" cy="12" r="10"/>
-              </svg>
-            </span>
-            <span>Connect with Bluesky</span>
-          </button>
         {/if}
       </div>
     </div>

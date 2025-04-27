@@ -103,8 +103,6 @@ export class ATProtoService {
       // Get profile data
       const profile = await agent.getProfile({ actor: session.did });
 
-      console.log(profile);
-
       // Use a transaction for database operations
       return await this.db.transaction(async (tx) => {
         let userUuid: StringUUID;

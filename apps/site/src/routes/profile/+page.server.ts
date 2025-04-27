@@ -8,12 +8,20 @@ export const load: PageServerLoad = async ({ locals }) => {
     throw redirect(302, "/auth/login");
   }
 
+  // Get connections but only use social ones
   const connections = await locals.deps.authService.getUserConnections(locals.user);
   const missingConnections = await locals.deps.authService.getMissingConnections(locals.user);
 
   return {
-    connections,
-    missingConnections
+    user: locals.user,
+    connections: {
+      social: connections.social
+      // Exclude atproto connections
+    },
+    missingConnections: {
+      social: missingConnections.social
+      // Exclude atproto from missing connections
+    }
   };
 };
 
@@ -33,15 +41,13 @@ export const actions: Actions = {
     }
 
     try {
-      // This action needs to be implemented in the UserService
-      await locals.deps.users.updateEmail(locals.user.userId, email);
-
+      await locals.deps.userService.updateEmail(locals.user.userId, email);
       return { success: true };
-    } catch (err) {
-      logger.error({ err }, "Error updating email");
+    } catch (error) {
+      logger.error({ err: error }, "Error updating email");
       return fail(500, {
         success: false,
-        message: err instanceof Error ? err.message : "An unknown error occurred"
+        message: error instanceof Error ? error.message : "An unknown error occurred"
       });
     }
   }

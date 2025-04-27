@@ -203,9 +203,9 @@ export class AuthService {
       }
 
       return { userId: user.userId };
-    } catch (error) {
-      logger.error({ error }, "Error handling ATProto callback");
-      throw new Error("Authentication failed during ATProto callback");
+    } catch (err) {
+      logger.error({ err }, "Error handling ATProto callback");
+      throw err;
     }
   }
 

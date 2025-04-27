@@ -15,14 +15,18 @@ export async function createATProtoOAuthClient(
   logger: Logger,
   db: Drizzle,
   vault: VaultService,
+  fetch: FetchFn,
   atprotoConfig: ATProtoConfig,
   urlsConfig: UrlsConfig
 ): Promise<NodeOAuthClient> {
-  const clientLogger = logger.child({ context: "ATProtoOAuthClient" });
+  const clientLogger = logger.child({ component: "ATProtoOAuthClient" });
 
   // Convert the private JWKS to JoseKey instances
   const keyset = await Promise.all(
-    atprotoConfig.privateJwks.keys.map(key => JoseKey.fromJWK(key))
+    atprotoConfig.privateJwks.keys.map(key => JoseKey.fromJWK(key).catch(err => {
+      clientLogger.error({ err, kid: key.kid }, "Error parsing JWK");
+      throw err;
+    }))
   );
 
   const frontendBaseUrl = urlsConfig.frontendBaseUrl;
@@ -52,8 +56,10 @@ export async function createATProtoOAuthClient(
   } as const;
 
   // Session and state store handlers
+  const sessionStoreLogger = clientLogger.child({ component: "ATProtoOAuthClient.SessionStore" });
   const sessionStore: NodeSavedSessionStore = {
     async get(key: string): Promise<NodeSavedSession | undefined> {
+      sessionStoreLogger.debug({ key }, "Getting session");
       const [session] = await db
         .select()
         .from(ATPROTO_SESSIONS)
@@ -68,6 +74,7 @@ export async function createATProtoOAuthClient(
     },
 
     async set(key: string, data: NodeSavedSession): Promise<void> {
+      sessionStoreLogger.debug({ key }, "Setting session");
       const encrypted = await vault.encrypt(JSON.stringify(data));
 
       await db
@@ -83,14 +90,17 @@ export async function createATProtoOAuthClient(
     },
 
     async del(key: string): Promise<void> {
+      sessionStoreLogger.debug({ key }, "Deleting session");
       await db
         .delete(ATPROTO_SESSIONS)
         .where(eq(ATPROTO_SESSIONS.key, key));
     }
   };
 
+  const stateStoreLogger = clientLogger.child({ component: "ATProtoOAuthClient.StateStore" });
   const stateStore: NodeSavedStateStore = {
     async get(key: string): Promise<NodeSavedState | undefined> {
+      stateStoreLogger.debug({ key }, "Getting state");
       const [state] = await db
         .select()
         .from(ATPROTO_STATES)
@@ -105,6 +115,7 @@ export async function createATProtoOAuthClient(
     },
 
     async set(key: string, data: NodeSavedState): Promise<void> {
+      stateStoreLogger.debug({ key }, "Setting state");
       const encrypted = await vault.encrypt(JSON.stringify(data));
 
       await db
@@ -120,6 +131,7 @@ export async function createATProtoOAuthClient(
     },
 
     async del(key: string): Promise<void> {
+      stateStoreLogger.debug({ key }, "Deleting state");
       await db
         .delete(ATPROTO_STATES)
         .where(eq(ATPROTO_STATES.key, key));
@@ -128,6 +140,7 @@ export async function createATProtoOAuthClient(
 
   // Create and return the client
   return new NodeOAuthClient({
+    fetch,
     sessionStore,
     stateStore,
     clientMetadata,

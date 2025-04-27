@@ -55,14 +55,7 @@
           <DropdownMenu.Item
             class="flex h-10 select-none items-center rounded-md px-3 py-2 text-sm font-medium data-[highlighted]:bg-gray-100 focus:outline-none"
             onSelect={() => {
-              if (method.id === 'bluesky') {
-                const handle = prompt('Enter your Bluesky handle:');
-                if (handle) {
-                  window.location.href = `/auth/atproto/authorize?handle=${encodeURIComponent(handle)}`;
-                }
-              } else {
-                window.location.href = `/auth/social/${method.id}/authorize`;
-              }
+              window.location.href = `/auth/social/${method.id}/authorize`;
             }}
           >
             <span class="flex items-center">
