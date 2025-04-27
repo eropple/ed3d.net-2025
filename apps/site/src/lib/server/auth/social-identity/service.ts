@@ -6,6 +6,7 @@ import * as oauth from "oauth4webapi";
 import type { Logger } from "pino";
 
 import { UserIds, type UserId } from "../../../domain/users/ids.js";
+import type { UserPrivate } from "../../../domain/users/types.js";
 import { StringUUID } from "../../../ext/typebox/index.js";
 import {
   SOCIAL_OAUTH2_PROVIDER_KIND,
@@ -71,8 +72,7 @@ export class SocialIdentityService {
  * Generate a secure state value for OAuth2 flow
  */
 private async generateStateToken(stateData: AuthorizationData): Promise<string> {
-  const stateDataString = JSON.stringify(stateData);
-  const encryptedStateData = await this.vault.encrypt(stateDataString);
+  const encryptedStateData = await this.vault.encrypt(stateData);
   // Convert the Sensitive<string> to a serializable format before base64 encoding
   const serializedEncryptedData = JSON.stringify(encryptedStateData);
   return Buffer.from(serializedEncryptedData).toString("base64url");
@@ -97,9 +97,9 @@ private async verifyStateToken(stateToken: string): Promise<AuthorizationData> {
     }
 
     return stateData;
-  } catch (error) {
-    this.logger.error({ error }, "Failed to verify OAuth state token");
-    throw new Error("Invalid or expired authorization state");
+  } catch (err) {
+    this.logger.error({ err }, "Failed to verify OAuth state token");
+    throw err;
   }
 }
 
@@ -133,7 +133,7 @@ private async verifyStateToken(stateToken: string): Promise<AuthorizationData> {
     const stateToken = await this.generateStateToken(stateData);
 
     // Build callback URL from frontendBaseUrl
-    const callbackUrl = `${this.frontendBaseUrl}/api/auth/social/${provider}/callback`;
+    const callbackUrl = `${this.frontendBaseUrl}/auth/social/${provider}/callback`;
 
     // Build authorization URL
     const params = new URLSearchParams({
@@ -164,7 +164,7 @@ private async verifyStateToken(stateToken: string): Promise<AuthorizationData> {
     provider: SocialOAuth2ProviderKind,
     code: string,
     stateToken: string
-  ): Promise<{ userId: UserId }> {
+  ): Promise<{ user: UserPrivate }> {
     const logger = this.logger.child({ fn: "handleCallback", provider });
     logger.debug("Processing OAuth callback");
 
@@ -261,11 +261,16 @@ private async verifyStateToken(stateToken: string): Promise<AuthorizationData> {
           tx
         );
 
-        return { userId };
+        const retUser = await this.userService.getById(userId, tx);
+        if (!retUser) {
+          throw new Error("User not found");
+        }
+
+        return { user: retUser };
       });
-    } catch (error) {
-      logger.error({ error }, "Error handling OAuth callback");
-      throw new Error(`Authentication failed during OAuth callback`);
+    } catch (err) {
+      logger.error({ err }, "Error handling OAuth callback");
+      throw err;
     }
   }
 
@@ -282,7 +287,7 @@ private async verifyStateToken(stateToken: string): Promise<AuthorizationData> {
     const providerInstance = this.providers[provider];
 
     // Build callback URL from frontendBaseUrl
-    const callbackUrl = `${this.frontendBaseUrl}/api/auth/social/${provider}/callback`;
+    const callbackUrl = `${this.frontendBaseUrl}/auth/social/${provider}/callback`;
 
     // Prepare token request
     const params = new URLSearchParams({
@@ -434,7 +439,7 @@ private async verifyStateToken(stateToken: string): Promise<AuthorizationData> {
   /**
    * Get all social identities for a user
    */
-  async getSocialIdentities(userUuid: string): Promise<typeof USER_SOCIAL_OAUTH2_IDENTITIES.$inferSelect[]> {
+  async getSocialIdentities(userUuid: StringUUID): Promise<typeof USER_SOCIAL_OAUTH2_IDENTITIES.$inferSelect[]> {
     const logger = this.logger.child({ fn: "getSocialIdentities", userUuid });
 
     const identities = await this.db.select().from(USER_SOCIAL_OAUTH2_IDENTITIES).where(eq(USER_SOCIAL_OAUTH2_IDENTITIES.userUuid, userUuid));

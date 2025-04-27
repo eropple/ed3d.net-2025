@@ -64,14 +64,14 @@ export class ATProtoService {
       // Generate the authorization URL with the ATProto client
       const authUrl = await client.authorize(handle, {
         state: stateToken,
-        scope: "openid profile email com.atproto.label:feedback",
+        scope: "atproto",
       });
 
       logger.debug({ authUrl }, "Generated ATProto authorization URL");
       return authUrl.toString();
     } catch (err) {
       logger.error({ err }, "Error generating ATProto authorization URL");
-      throw new Error("Failed to generate ATProto authorization URL");
+      throw err;
     }
   }
 
@@ -102,6 +102,8 @@ export class ATProtoService {
 
       // Get profile data
       const profile = await agent.getProfile({ actor: session.did });
+
+      console.log(profile);
 
       // Use a transaction for database operations
       return await this.db.transaction(async (tx) => {
@@ -157,9 +159,9 @@ export class ATProtoService {
 
         return { userUuid };
       });
-    } catch (error) {
-      logger.error({ error }, "Error handling ATProto callback");
-      throw new Error("ATProto authentication failed");
+    } catch (err) {
+      logger.error({ err }, "Error handling ATProto callback");
+      throw err;
     }
   }
 
@@ -244,8 +246,7 @@ export class ATProtoService {
    * Generate a state token for authorization
    */
   private async generateStateToken(stateData: ATProtoAuthState): Promise<string> {
-    const stateDataString = JSON.stringify(stateData);
-    const encryptedStateData = await this.vault.encrypt(stateDataString);
+    const encryptedStateData = await this.vault.encrypt(stateData);
     const serializedEncryptedData = JSON.stringify(encryptedStateData);
     return Buffer.from(serializedEncryptedData).toString("base64url");
   }
@@ -266,9 +267,9 @@ export class ATProtoService {
       }
 
       return stateData;
-    } catch (error) {
-      this.logger.error({ error }, "Failed to verify ATProto state token");
-      throw new Error("Invalid or expired ATProto authorization state");
+    } catch (err) {
+      this.logger.error({ error: err }, "Failed to verify ATProto state token");
+      throw err;
     }
   }
 

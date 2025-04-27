@@ -67,6 +67,7 @@ logger: Logger
 
 ## Observability
 - Pino for structured JSON logging
+  - ALWAYS use `err` for the error in a catch as Pino will log the error automatically
 - Request-scoped logging with correlation IDs
 - Component-specific loggers with configurable log levels
 - Complete request lifecycle timing and error tracking
@@ -104,6 +105,7 @@ Services define externally returnable objects (DTOs) with the following rules:
 - Each service's DTOs should be defined as TypeBox objects in a `types.ts` (or a `types/index.ts` file with related files) file alongside the service
 - Each service object should have a `__type` field with a literal value matching the object type (e.g., `__type: "UserPublic"`)
 - Try to build them via composition rather than copying whenever possible, for example:
+- Services that consume other services' DAOs, or non-getter methods in a service that owns a DAO, should accept either the DAO or its primary ID as an argument. For example, `AuthService` should accept `UserPrivate` (the entire returned object from `UserService.getById`, containing ` userId: UserIds.TRichId`) or `UserId` (the primary ID of the user). 
 
 ```ts
 export const UserPublic = Type.Object({

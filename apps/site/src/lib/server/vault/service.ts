@@ -10,7 +10,7 @@ export class VaultService {
    * Encrypt a value using the primary key
    */
   async encrypt<T>(value: T): Promise<Sensitive<T>> {
-    const [primaryVersion, key] = this.keyStore.getPrimaryKey();
+    const [primaryVersion, key] = await this.keyStore.getPrimaryKey();
     const strategy = ENCRYPTION_STRATEGIES[key.strategy];
 
     // Generate a random IV
@@ -63,7 +63,7 @@ export class VaultService {
    * Decrypt an encrypted envelope
    */
   async decrypt<T>(envelope: Sensitive<T>): Promise<T> {
-    const key = this.keyStore.getKey(envelope.k);
+    const key = await this.keyStore.getKey(envelope.k);
     if (!key) {
       throw new Error("No matching key found for decryption");
     }

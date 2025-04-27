@@ -1,4 +1,4 @@
-import { error, redirect } from "@sveltejs/kit";
+import { error, isRedirect, redirect } from "@sveltejs/kit";
 
 import type { RequestHandler } from "./$types";
 
@@ -20,6 +20,10 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 
     throw redirect(302, authUrl);
   } catch (err) {
+    if (isRedirect(err)) {
+      throw err;
+    }
+
     logger.error({ err }, "Error starting ATProto auth");
     throw error(500, "Failed to start authentication");
   }

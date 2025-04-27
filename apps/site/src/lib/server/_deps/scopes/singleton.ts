@@ -135,8 +135,8 @@ export async function configureBaseAwilixContainer(
       });
     }).singleton(),
 
-    vaultKeyStore: asFunction(({ config }: AppSingletonCradle) => {
-      return new VaultKeyStore({
+    vaultKeyStore: asFunction(({ logger, config }: AppSingletonCradle) => {
+      return new VaultKeyStore(logger, {
         primaryKey: config.vault.primaryKey,
         legacyKeys: [...config.vault.legacyKeys || []],
       });

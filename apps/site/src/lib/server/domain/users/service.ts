@@ -9,6 +9,7 @@ import type { UserPrivate, UserPublic } from "../../../domain/users/types.js";
 import { type StringUUID } from "../../../ext/typebox/index.js";
 import { USERS, type DBUser } from "../../db/schema/index.js";
 import { type DrizzleRO, type Drizzle } from "../../db/types.js";
+import { sha512_256 } from "../../utils/hashing.js";
 
 
 export class UserService {
@@ -214,5 +215,47 @@ export class UserService {
     }
 
     return username;
+  }
+
+  /**
+   * Update a user's email address
+   * This will mark the email as unverified
+   */
+  async updateEmail(
+    userOrUserId: UserPrivate | UserId,
+    newEmail: string,
+    executor: Drizzle = this.db
+  ): Promise<UserPrivate> {
+
+    const userId = typeof userOrUserId === "string" ? userOrUserId : userOrUserId.userId;
+    const logger = this.logger.child({ fn: "updateEmail", userId, newEmailHash: sha512_256(newEmail) });
+
+    // Check if email is already in use by another user
+    const existingUser = await this.getByEmail(newEmail, executor);
+    if (existingUser && existingUser.userId !== userOrUserId) {
+      logger.info({ existingUserId: existingUser.userId }, "Email address is already in use");
+      throw new Error("Email address is already in use");
+    }
+
+    const userUuid = UserIds.toUUID(userId);
+
+    // Update the user's email and mark as unverified
+    const [updatedUser] = await executor
+      .update(USERS)
+      .set({
+        email: newEmail,
+        emailVerifiedAt: null, // Mark as unverified
+        updatedAt: new Date()
+      })
+      .where(eq(USERS.userUuid, userUuid))
+      .returning();
+
+    if (!updatedUser) {
+      throw new Error("Failed to update user email");
+    }
+
+    logger.info({ updatedUser }, "Updated user email");
+
+    return this._dbUserToUserPrivate(updatedUser);
   }
 }

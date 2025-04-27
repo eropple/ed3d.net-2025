@@ -1,4 +1,4 @@
-import { error, redirect } from "@sveltejs/kit";
+import { error, isRedirect, redirect } from "@sveltejs/kit";
 
 import type { RequestHandler } from "./$types";
 
@@ -35,11 +35,15 @@ export const GET: RequestHandler = async ({ params, url, locals, cookies }) => {
     const { token, expiresAt } = await locals.deps.sessionService.createSession(userId);
 
     // Set the session cookie
-    setSessionCookie(cookies, token, expiresAt, locals.config.auth);
+    setSessionCookie(logger, cookies, token, expiresAt, locals.config.auth);
 
     // Redirect to profile page after successful authentication
     throw redirect(302, "/profile");
   } catch (err) {
+    if (isRedirect(err)) {
+      throw err;
+    }
+
     logger.error({ err, provider }, "Error handling social callback");
     throw error(500, "Authentication failed. Please try again.");
   }

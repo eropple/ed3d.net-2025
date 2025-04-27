@@ -35,24 +35,21 @@ export async function createATProtoOAuthClient(
   const clientMetadata: OAuthClientMetadata = {
     client_id: clientId,
     client_name: SITE_NAME,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    client_uri: frontendBaseUrl as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    logo_uri: `${frontendBaseUrl}/favicon.png` as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    tos_uri: `${frontendBaseUrl}/boilerplate/terms-of-service` as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    policy_uri: `${frontendBaseUrl}/boilerplate/privacy-policy` as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    redirect_uris: [redirectUriPrimary] as any,
+
+    client_uri: frontendBaseUrl as `https://${string}`,
+    // logo_uri: `${frontendBaseUrl}/favicon.png` as any,
+    tos_uri: `${frontendBaseUrl}/boilerplate/terms-of-service` as `https://${string}`,
+    policy_uri: `${frontendBaseUrl}/boilerplate/privacy-policy` as `https://${string}`,
+    redirect_uris: [`${frontendBaseUrl}/auth/atproto/callback` as `https://${string}`] ,
     application_type: "web",
     grant_types: ["authorization_code", "refresh_token"],
     response_types: ["code"],
     token_endpoint_auth_method: "private_key_jwt",
+    token_endpoint_auth_signing_alg: "ES256",
     dpop_bound_access_tokens: true,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    jwks_uri: `${frontendBaseUrl}/auth/atproto/jwks.json` as any,
-  };
+    scope: "atproto",
+    jwks_uri: `${frontendBaseUrl}/auth/atproto/jwks.json` as `https://${string}`,
+  } as const;
 
   // Session and state store handlers
   const sessionStore: NodeSavedSessionStore = {

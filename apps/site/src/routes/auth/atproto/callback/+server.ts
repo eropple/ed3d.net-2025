@@ -1,4 +1,4 @@
-import { error, redirect } from "@sveltejs/kit";
+import { error, isRedirect, redirect } from "@sveltejs/kit";
 
 import type { RequestHandler } from "./$types";
 
@@ -15,7 +15,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
     const { token, expiresAt } = await locals.deps.sessionService.createSession(userId);
 
     // Set the session cookie
-    setSessionCookie(cookies, token, expiresAt, locals.config.auth);
+    setSessionCookie(logger, cookies, token, expiresAt, locals.config.auth);
 
     // Get the redirect destination from state parameter (if it exists)
     const state = url.searchParams.get("state");
@@ -37,6 +37,10 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
     // Redirect to the target page
     throw redirect(302, redirectTo);
   } catch (err) {
+    if (isRedirect(err)) {
+      throw err;
+    }
+
     logger.error({ err }, "Error handling ATProto callback");
     throw error(500, "Authentication failed. Please try again.");
   }

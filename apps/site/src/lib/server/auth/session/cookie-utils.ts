@@ -1,4 +1,5 @@
 import type { Cookies } from "@sveltejs/kit";
+import type { Logger } from "pino";
 
 import type { AuthConfig } from "../config.js";
 
@@ -6,11 +7,21 @@ import type { AuthConfig } from "../config.js";
  * Set a session cookie
  */
 export function setSessionCookie(
+  logger: Logger,
   cookies: Cookies,
   token: string,
   expiresAt: Date,
   config: AuthConfig
 ): void {
+  logger.fatal({ authConfig: config }, "Setting session cookie");
+  const httpOnly = true;
+  const secure = config.session.secureCookies;
+  const domain = config.session.cookieDomain || undefined;
+  const sameSite = "lax";
+  const expires = expiresAt;
+
+  logger.debug({ expiresAt, httpOnly, secure, domain, sameSite, expires }, "Setting session cookie");
+
   cookies.set(config.session.cookieName, token, {
     path: "/",
     httpOnly: true,

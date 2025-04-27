@@ -7,7 +7,7 @@ import type { Logger } from "pino";
 import { UserIds, type UserId } from "../../domain/users/ids.js";
 import type { UserPrivate, UserPublic } from "../../domain/users/types.js";
 import type { StringUUID } from "../../ext/typebox/index.js";
-import { USERS } from "../db/schema/index.js";
+import { SOCIAL_OAUTH2_PROVIDER_KIND, USERS } from "../db/schema/index.js";
 import type { SocialOAuth2ProviderKind } from "../db/schema/index.js";
 import type { Drizzle, DrizzleRO } from "../db/types.js";
 import { type UserService } from "../domain/users/service.js";
@@ -49,8 +49,7 @@ export class AuthService {
       }
     }
 
-    // Create temporary user UUID for the auth flow if userId is null
-    const userUuid = userId ? userId : UserIds.toRichId(crypto.randomUUID());
+    const userUuid = userId ? userId : undefined;
 
     // Generate authorization URL
     return this.socialIdentityService.getAuthorizationUrl(userUuid, provider);
@@ -68,23 +67,17 @@ export class AuthService {
 
     try {
       // Process the callback in the social identity service
-      const { userId } = await this.socialIdentityService.handleCallback(provider, code, state);
-
-      // Get the user to return the rich ID
-      const user = await this.userService.getById(userId);
-      if (!user) {
-        throw new Error("User not found after social auth callback");
-      }
+      const { user } = await this.socialIdentityService.handleCallback(provider, code, state);
 
       // Optionally mark email as verified if coming from trusted provider
       if (provider === "google" && !user.emailVerified) {
-        await this.verifyUserEmail(userId);
+        await this.verifyUserEmail(user.userId);
       }
 
       return { userId: user.userId };
-    } catch (error) {
-      logger.error({ error, provider }, "Error handling social callback");
-      throw new Error(`Authentication failed during social callback`);
+    } catch (err) {
+      logger.error({ err, provider }, "Error handling social callback");
+      throw err;
     }
   }
 
@@ -144,11 +137,11 @@ export class AuthService {
   /**
    * Mark a user's email as verified
    */
-  private async verifyUserEmail(userUuid: UserId): Promise<void> {
+  private async verifyUserEmail(userIdOrUuid: UserId | StringUUID): Promise<void> {
     await this.db
       .update(USERS)
       .set({ emailVerifiedAt: new Date() })
-      .where(eq(USERS.userUuid, UserIds.toUUID(userUuid)));
+      .where(eq(USERS.userUuid, UserIds.toUUID(userIdOrUuid)));
   }
 
   /**
@@ -230,5 +223,114 @@ export class AuthService {
   async removeATProtoIdentity(userId: UserId): Promise<void> {
     const userUuid = UserIds.toUUID(userId);
     await this.atprotoService.deleteATProtoIdentity(userUuid);
+  }
+
+  /**
+   * Get all available OAuth providers
+   */
+  async getAvailableProviders(): Promise<{
+    social: Array<{
+      id: SocialOAuth2ProviderKind;
+      name: string;
+    }>;
+    atproto: boolean;
+  }> {
+    // List all supported social providers
+    const socialProviders = SOCIAL_OAUTH2_PROVIDER_KIND.enumValues.map(id => ({
+      id,
+      name: this.getProviderDisplayName(id)
+    }));
+
+    return {
+      social: socialProviders,
+      atproto: true // ATProto is always available
+    };
+  }
+
+  /**
+   * Get display name for OAuth provider
+   */
+  private getProviderDisplayName(provider: SocialOAuth2ProviderKind): string {
+    const displayNames: Record<SocialOAuth2ProviderKind, string> = {
+      github: "GitHub",
+      google: "Google"
+    };
+
+    return displayNames[provider] || provider;
+  }
+
+  /**
+   * Get all OAuth connections for a user
+   */
+  async getUserConnections(
+    userOrUserId: UserPrivate | UserId
+  ): Promise<{
+    social: Array<{
+      provider: SocialOAuth2ProviderKind;
+      providerName: string;
+      username: string;
+      identityUuid: StringUUID;
+      connectedAt: number;
+    }>;
+    atproto: {
+      handle: string;
+      did: string;
+      connectedAt: number;
+    } | null;
+  }> {
+    const userId = userOrUserId instanceof Object ? userOrUserId.userId : userOrUserId;
+
+    // Get social identities
+    const socialIdentities = await this.getUserSocialIdentities(userId);
+    const socialConnections = socialIdentities.map(identity => ({
+      provider: identity.provider,
+      providerName: this.getProviderDisplayName(identity.provider),
+      username: identity.providerUsername,
+      identityUuid: identity.userSocialOAuth2IdentityUuid,
+      connectedAt: identity.createdAt.getTime()
+    }));
+
+    // Get ATProto identity if exists
+    const atprotoIdentity = await this.getUserATProtoIdentity(userId);
+    const atprotoConnection = atprotoIdentity ? {
+      handle: atprotoIdentity.handle,
+      did: atprotoIdentity.did,
+      connectedAt: atprotoIdentity.createdAt.getTime()
+    } : null;
+
+    return {
+      social: socialConnections,
+      atproto: atprotoConnection
+    };
+  }
+
+  /**
+   * Get missing OAuth connections for a user
+   * Returns providers that the user hasn't connected yet
+   */
+  async getMissingConnections(
+    userOrUserId: UserPrivate | UserId
+  ): Promise<{
+    social: SocialOAuth2ProviderKind[];
+    atproto: boolean;
+  }> {
+    const userId = userOrUserId instanceof Object ? userOrUserId.userId : userOrUserId;
+
+    // Get user's current connections
+    const connections = await this.getUserConnections(userId);
+
+    // Get all available providers
+    const availableProviders = SOCIAL_OAUTH2_PROVIDER_KIND.enumValues;
+
+    // Filter out providers the user has already connected
+    const connectedSocialIds = connections.social.map(conn => conn.provider);
+    const missingSocial = availableProviders.filter(
+      provider => !connectedSocialIds.includes(provider)
+    );
+
+    return {
+      social: missingSocial,
+      atproto: !connections.atproto
+    };
   }
 }

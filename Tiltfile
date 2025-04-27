@@ -109,12 +109,12 @@ if tilt_runmode == 'dev-in-tilt':
     worker_core_count = os.environ['TILT_WORKER_CORE_COUNT']
     worker_media_count = os.environ['TILT_WORKER_MEDIA_COUNT']
 
-    # local_resource("cloudflared",
-    #     allow_parallel=True,
-    #     auto_init=True,
-    #     serve_cmd="bash ./_dev-env/cloudflared/run.bash",
-    #     deps=["./_dev-env/cloudflared/config.yaml"],
-    #     labels=["04-util"])
+    local_resource("cloudflared",
+        allow_parallel=True,
+        auto_init=True,
+        serve_cmd="bash ./_dev-env/cloudflared/run.bash",
+        deps=["./_dev-env/cloudflared/config.yaml"],
+        labels=["04-util"])
 
     local_resource("postgres-studio",
         allow_parallel=True,
