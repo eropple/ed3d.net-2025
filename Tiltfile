@@ -159,3 +159,10 @@ if tilt_runmode == 'dev-in-tilt':
             link("http://localhost:" + os.environ['TEMPORAL__UI_PORT'], "Temporal UI")
         ],
         labels=["00-app"])
+
+    local_resource("worker-core-0",
+        serve_cmd="pnpm cli:dev worker start core",
+        serve_dir=site_dir,
+        allow_parallel=True,
+        resource_deps=["wait-for-dependencies", "migrate-postgres"],
+        labels=["00-app"])

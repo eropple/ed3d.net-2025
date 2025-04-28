@@ -2,6 +2,7 @@ import { type Static, Type } from "@sinclair/typebox";
 import { TypeCompiler } from "@sinclair/typebox/compiler";
 
 import { AuthConfig } from "../../auth/config.js";
+import { EmailDeliveryConfig } from "../../email/config.js";
 import { RedisConfig } from "../../redis/config.js";
 import { SanityConfig } from "../../sanity/config";
 import { TemporalConfig } from "../../temporal/config";
@@ -13,7 +14,6 @@ import { PostgresConfig } from "$lib/server/db/config";
 import { MemorySWRConfig } from "$lib/server/swr/memory";
 
 import "$lib/ext/typebox/index.js";
-
 
 
 export const LogLevelChecker = TypeCompiler.Compile(LogLevel);
@@ -53,6 +53,7 @@ export const AppConfig = Type.Intersect([
     sanity: SanityConfig,
     vault: VaultConfig,
     auth: AuthConfig,
+    emailDelivery: EmailDeliveryConfig,
   }),
 ]);
 export type AppConfig = Static<typeof AppConfig>;

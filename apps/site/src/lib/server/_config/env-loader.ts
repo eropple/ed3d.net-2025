@@ -5,6 +5,7 @@ import { type ATProtoConfig } from "../auth/atproto/config.js";
 import { type AuthConfig } from "../auth/config.js";
 import { type PrivateJWKS } from "../auth/jwks.js";
 import { type SocialIdentityConfig } from "../auth/social-identity/config.js";
+import { type EmailDeliveryConfig } from "../email/config.js";
 import type { RedisConfig } from "../redis/config.js";
 import type { SanityConfig } from "../sanity/config.js";
 import type { VaultConfig } from "../vault/config.js";
@@ -148,6 +149,24 @@ function loadAuthConfig(): AuthConfig {
   };
 }
 
+function loadEmailDeliveryConfig(): EmailDeliveryConfig {
+  return {
+    smtp: {
+      host: requireStr("EMAIL_DELIVERY__SMTP__HOST"),
+      port: getNum("EMAIL_DELIVERY__SMTP__PORT", 25),
+      tls: getBool("EMAIL_DELIVERY__SMTP__TLS", false),
+      auth: {
+        user: requireStr("EMAIL_DELIVERY__SMTP__AUTH__USER"),
+        pass: requireStr("EMAIL_DELIVERY__SMTP__AUTH__PASS"),
+      }
+    },
+    defaults: {
+      from: getStr("EMAIL_DELIVERY__DEFAULTS__FROM", "ed at ed3d <ed+automailer@ed3d.net>"),
+      replyTo: getStr("EMAIL_DELIVERY__DEFAULTS__REPLY_TO", "ed at ed3d <ed+automailer@ed3d.net>"),
+    }
+  };
+}
+
 export function loadAppConfigFromNodeEnv(): AppConfig {
   const config = {
     ...loadBaseConfig(),
@@ -159,6 +178,7 @@ export function loadAppConfigFromNodeEnv(): AppConfig {
     temporal: loadTemporalConfig(),
     sanity: loadSanityConfig(),
     auth: loadAuthConfig(),
+    emailDelivery: loadEmailDeliveryConfig(),
   };
 
   AppConfigChecker.Decode(config);

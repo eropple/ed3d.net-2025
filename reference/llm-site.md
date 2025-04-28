@@ -139,7 +139,69 @@ export const UserPrivate = Type.Composite([
 throw redirect(302, "/login");
 ```
 
-## The Workshop
-Our backend for managing the website is called the "Workshop". It is part of the main application and is accessible at `/workshop`.
+-----
 
-You can find our LLM notes about this at `llm-site-workshop.md`.
+## Background Processing with Temporal
+
+The application uses Temporal for reliable background processing and scheduled tasks. The implementation is located in `lib/server/_worker/`.
+
+### Worker Structure
+- Main components:
+  - `index.ts`: Entry point for worker processes
+  - `worker-context.ts`: Manages DI context for workers
+  - `activity-helpers.ts`: Utilities for defining and executing activities
+  - `apply-schedules.ts` and `schedules.ts`: Manage scheduled workflows
+
+### Workflows and Activities
+- **Activities**: The actual units of work executed by Temporal
+  - Should be defined in domain-specific directories (e.g., `domain/users`)
+  - Must be imported and re-exported in `activities/index.ts` as part of `ALL_ACTIVITIES`
+  - Use the `activity()` factory function for consistent creation and registration
+
+- **Workflows**: Orchestrate activities
+  - Should be defined in domain-specific directories
+  - Must be re-exported from `workflows/${queueName}/index.ts` (e.g., `workflows/core/index.ts`)
+
+### Activity Implementation
+Activities are implemented using the `activity` factory:
+
+```ts
+// include 'Activity' in the identifier but not the name passed to the wrapper
+export const doSomethingActivity = activity("doSomething", {
+  tags: ["tagName"],
+  fn: async (context, logger, deps, args) => {
+    // Implementation...
+    return result;
+  }
+});
+```
+
+The `activityWrapper` function handles:
+- Retrieving the Temporal context
+- Creating a child logger with activity context
+- Configuring the activity-scoped DI container
+- Error handling and resource cleanup
+
+### Scheduled Workflows
+Define scheduled workflows in `schedules.ts` using:
+
+```ts
+TEMPORAL_SCHEDULED_WORKFLOWS: {
+  queueName: {
+    "schedule-id": {
+      action: {
+        type: "startWorkflow",
+        workflowId: "my-workflow-id",
+        workflowType: myWorkflow.name,
+        taskQueue: "queueName",
+        args: [],
+      },
+      spec: {
+        intervals: [{ every: ms("1 hour"), offset: 0 }],
+      },
+    }
+  }
+}
+```
+
+The `applySchedules` function automatically creates, updates, or deletes schedules as needed.

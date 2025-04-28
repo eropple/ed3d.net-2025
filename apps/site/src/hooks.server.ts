@@ -3,7 +3,7 @@ import { sequence } from "@sveltejs/kit/hooks";
 import { asValue } from "awilix";
 import { ulid } from "ulidx";
 
-import { configureRequestScope } from "./lib/server/_deps/scopes/request.js";
+import { configureScope } from "./lib/server/_deps/scopes/request.js";
 import { bootstrapSvelte } from "./lib/server/bootstrap/svelte.js";
 
 import { env } from "$env/dynamic/private";
@@ -19,7 +19,7 @@ export const handle: Handle = sequence(async ({ event, resolve }) => {
   const requestId = event.request.headers.get("x-request-id") ?? `REQ-${ulid()}`;
 
   let logger = ROOT_LOGGER.child({ reqId: requestId });
-  const requestContainer = await configureRequestScope(SINGLETON_CONTAINER, requestId);
+  const requestContainer = await configureScope(SINGLETON_CONTAINER, requestId);
 
   const rawHost = event.request.headers.get("host");
 
