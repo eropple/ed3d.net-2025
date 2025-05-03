@@ -52,7 +52,8 @@
 }
 
 html {
-  @apply font-serif;
+  --font-serif: "Lora", serif;
+  font-family: var(--font-serif);
 }
 
 p a,

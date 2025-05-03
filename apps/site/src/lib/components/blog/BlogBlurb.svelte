@@ -17,12 +17,14 @@
     <div class="col-span-2">
       <p>
         {blog.blurb}&nbsp;
-        {#if showCTA}
+      </p>
+      {#if showCTA}
+        <div class="text-right mt-1">
           <a href={blogPostUrl(blog.slug)} class="italic font-semibold">
             read the post &raquo;
           </a>
-        {/if}
-      </p>
+        </div>
+      {/if}
     </div>
     <div class="text-right">
       <p class="text-lg">{shortDateStyle(blog.date)}</p>

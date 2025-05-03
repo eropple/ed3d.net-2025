@@ -1,0 +1,30 @@
+---
+description: 
+globs: *.css,*.svelte
+alwaysApply: false
+---
+# House Style Guide
+
+This project uses **Tailwind CSS** as its primary styling engine.
+
+## Core Concepts
+
+- **Configuration:** Global theme settings (colors, fonts) are defined as CSS variables within an `@theme` block in [app.css](mdc:apps/site/src/lib/styles/app.css).
+  - Primary Color: `--color-primary` (`#475569`)
+  - Secondary Color: `--color-secondary` (`#94a3b8`) - Often used for hover/active states and focus rings.
+  - Darker Shade: `--color-less-dark` (`#1e293b`) - Used for hover states on primary elements.
+  - Error Color: `--color-error` (`#ef4444`)
+- **Typography:** The default font is **serif** (`--font-serif`, typically Lora), applied globally in [app.css](mdc:apps/site/src/lib/styles/app.css). UI elements might use sans-serif, but body text and general components should prefer serif where appropriate.
+- **Aesthetic:** A clean, modern, content-focused design with a subdued color palette (grays/blues).
+
+## Implementation Patterns
+
+1.  **Inline Utilities:** Tailwind utility classes are applied directly within Svelte components (e.g., [HeaderNav.svelte](mdc:apps/site/src/lib/components/HeaderNav.svelte), [Footer.svelte](mdc:apps/site/src/lib/components/Footer.svelte), [AuthModal.svelte](mdc:apps/site/src/lib/components/AuthModal.svelte)).
+2.  **Conditional Classes:** Use the `clsx` utility for applying classes conditionally based on component state or props (see `isActive` usage in [HeaderNav.svelte](mdc:apps/site/src/lib/components/HeaderNav.svelte)).
+3.  **Scoped CSS:** For more complex or shared styles specific to certain layouts (like blog posts or sidenotes), dedicated CSS files use Tailwind's `@apply` directive. Examples:
+    - [long-form.css](mdc:apps/site/src/lib/styles/long-form.css) (styles for `.long-form-content`)
+    - [sidenote.css](mdc:apps/site/src/lib/styles/sidenote.css) (styles for `.sidenote`, `.marginnote`)
+4.  **Bits UI Styling:** When using Bits UI components (headless, unstyled), apply Tailwind classes directly via the `class` prop passed to the component parts (e.g., `NavigationMenu.Trigger`, `Dialog.Content`) or target their `data-attributes` globally if needed (see [Styling Docs](mdc:https:/bits-ui.com/docs/styling)).
+5.  **Focus Styles:** Prefer using `--color-secondary` for focus rings (`focus:ring-secondary`) for consistency.
+
+Refer to [app.css](mdc:apps/site/src/lib/styles/app.css) for the definitive color and font variables. Check existing components like [HeaderNav.svelte](mdc:apps/site/src/lib/components/HeaderNav.svelte) and [AuthModal.svelte](mdc:apps/site/src/lib/components/AuthModal.svelte) for examples of applying these styles.

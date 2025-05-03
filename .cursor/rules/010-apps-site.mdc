@@ -12,8 +12,8 @@ alwaysApply: false
 
 ## Dependency Injection
 The application uses Awilix for dependency injection with two primary scopes:
-- **Singleton Scope**: Application-wide services configured in `_deps/scopes/singleton.ts`
-- **Request Scope**: Per-request dependencies configured in `_deps/scopes/request.ts`
+- **Singleton Scope**: Application-wide services configured in [_deps/scopes/singleton.ts](mdc:apps/site/src/lib/server/_deps/scopes/singleton.ts)
+- **Request Scope**: Per-request dependencies configured in [_deps/scopes/request.ts](mdc:apps/site/src/lib/server/_deps/scopes/request.ts)
 
 ## Key Services
 
@@ -59,7 +59,7 @@ logger: Logger
 ```
 
 ## Request Lifecycle
-1. Request enters via SvelteKit hooks (`hooks.server.ts`)
+1. Request enters via SvelteKit hooks ([hooks.server.ts](mdc:apps/site/src/hooks.server.ts))
 3. Request-scoped container is initialized
 4. Dependencies are attached to `event.locals`
 5. Route handler executes with access to injected dependencies
@@ -81,8 +81,8 @@ logger: Logger
 
 ### Adding New Dependencies
 New dependencies should be registered in the appropriate container:
-- Application-wide services in `configureBaseAwilixContainer()`
-- Request-scoped services in `configureRequestScope()`
+- Application-wide services in `configureBaseAwilixContainer()` (likely in [_deps/scopes/singleton.ts](mdc:apps/site/src/lib/server/_deps/scopes/singleton.ts))
+- Request-scoped services in `configureRequestScope()` (likely in [_deps/scopes/request.ts](mdc:apps/site/src/lib/server/_deps/scopes/request.ts))
 
 ### Logging
 Our injector always includes `logger`, which is a Pino logger. In classes, this should be used to create an instance-level child logger, e.g. `this.logger = logger.child({ component: MyClassName.constructor.name })`. In functions, both inside and out of a class, we should then use the most specific logger to create a child of that, e.g. `const logger = this.logger.child({ fn: MyFunction.name })`.
@@ -99,7 +99,7 @@ If a particular piece of code is going to need to log the same data multiple tim
 Long-running or reliability-critical tasks should use Temporal workflows instead of simple background jobs or cron tasks.
 
 ### Error Handling
-All errors are automatically logged with request context. Unhandled errors are captured in `hooks.server.ts` and logged with appropriate context.
+All errors are automatically logged with request context. Unhandled errors are captured in [hooks.server.ts](mdc:apps/site/src/hooks.server.ts) and logged with appropriate context.
 
 ## Routes
 All SvelteKit routes, unless explicitly ordered otherwise, should have server-side logic only, e.g. `+page.server.ts` and `+layout.server.ts`.
@@ -115,7 +115,7 @@ Services define externally returnable objects (DTOs) with the following rules:
 - Each service's DTOs should be defined as TypeBox objects in a `types.ts` (or a `types/index.ts` file with related files) file alongside the service
 - Each service object should have a `__type` field with a literal value matching the object type (e.g., `__type: "UserPublic"`)
 - Try to build them via composition rather than copying whenever possible, for example:
-- Services that consume other services' DAOs, or non-getter methods in a service that owns a DAO, should accept either the DAO or its primary ID as an argument. For example, `AuthService` should accept `UserPrivate` (the entire returned object from `UserService.getById`, containing ` userId: UserIds.TRichId`) or `UserId` (the primary ID of the user). 
+- Services that consume other services' DAOs, or non-getter methods in a service that owns a DAO, should accept either the DAO or its primary ID as an argument. For example, `AuthService` should accept `UserPrivate` (the entire returned object from `UserService.getById`, containing ` userId: UserIds.TRichId`) or `UserId` (the primary ID of the user).
 
 ```ts
 export const UserPublic = Type.Object({
@@ -132,7 +132,7 @@ export const UserPrivate = Type.Composite([
 ]);
 ```
 
-- Service objects using rich IDs should have the appropriate rich ID type from `ids.ts` 
+- Service objects using rich IDs should have the appropriate rich ID type from [ids.ts](mdc:apps/site/src/lib/server/domain/ids.ts) (assuming location, adjust if needed)
 - Services should provide methods to convert between public and private representations:
   - `toPublic(privateObject)` to reduce a private object to its public representation
   - Database objects should be converted to DTOs before being returned from service methods
@@ -140,7 +140,7 @@ export const UserPrivate = Type.Composite([
 
 ## Working in Svelte
 
-- Components that are specific to a route should live next to the +layout.svelte or +page.svelte files that they relate to. Reusable components should go in the `src/lib/components` directory.
+- Components that are specific to a route should live next to the +layout.svelte or +page.svelte files that they relate to. Reusable components should go in the [src/lib/components](mdc:apps/site/src/lib/components) directory.
 - Use Tailwind CSS whenever possible instead of custom CSS.
 - When in the workshop (control panel, routes under `/workshop`), use DaisyUI components.
 - In page/layout loaders, you can determine if a user is logged in by checking `locals.user`. If they are not logged in, you can redirect them to the login page by throwing a redirect exception:
@@ -153,24 +153,24 @@ throw redirect(302, "/login");
 
 ## Background Processing with Temporal
 
-The application uses Temporal for reliable background processing and scheduled tasks. The implementation is located in `lib/server/_worker/`.
+The application uses Temporal for reliable background processing and scheduled tasks. The implementation is located in [lib/server/_worker/](mdc:apps/site/src/lib/server/_worker).
 
 ### Worker Structure
 - Main components:
-  - `index.ts`: Entry point for worker processes
-  - `worker-context.ts`: Manages DI context for workers
-  - `activity-helpers.ts`: Utilities for defining and executing activities
-  - `apply-schedules.ts` and `schedules.ts`: Manage scheduled workflows
+  - [index.ts](mdc:apps/site/src/lib/server/_worker/index.ts): Entry point for worker processes
+  - [worker-context.ts](mdc:apps/site/src/lib/server/_worker/worker-context.ts): Manages DI context for workers
+  - [activity-helpers.ts](mdc:apps/site/src/lib/server/_worker/activity-helpers.ts): Utilities for defining and executing activities
+  - [apply-schedules.ts](mdc:apps/site/src/lib/server/_worker/apply-schedules.ts) and [schedules.ts](mdc:apps/site/src/lib/server/_worker/schedules.ts): Manage scheduled workflows
 
 ### Workflows and Activities
 - **Activities**: The actual units of work executed by Temporal
   - Should be defined in domain-specific directories (e.g., `domain/users`)
-  - Must be imported and re-exported in `activities/index.ts` as part of `ALL_ACTIVITIES`
+  - Must be imported and re-exported in [activities/index.ts](mdc:apps/site/src/lib/server/_worker/activities/index.ts) as part of `ALL_ACTIVITIES`
   - Use the `activity()` factory function for consistent creation and registration
 
 - **Workflows**: Orchestrate activities
   - Should be defined in domain-specific directories
-  - Must be re-exported from `workflows/${queueName}/index.ts` (e.g., `workflows/core/index.ts`)
+  - Must be re-exported from `workflows/${queueName}/index.ts` (e.g., [workflows/core/index.ts](mdc:apps/site/src/lib/server/_worker/workflows/core/index.ts))
 
 ### Activity Implementation
 Activities are implemented using the `activity` factory:
@@ -193,7 +193,7 @@ The `activityWrapper` function handles:
 - Error handling and resource cleanup
 
 ### Scheduled Workflows
-Define scheduled workflows in `schedules.ts` using:
+Define scheduled workflows in [schedules.ts](mdc:apps/site/src/lib/server/_worker/schedules.ts) using:
 
 ```ts
 TEMPORAL_SCHEDULED_WORKFLOWS: {
@@ -214,4 +214,4 @@ TEMPORAL_SCHEDULED_WORKFLOWS: {
 }
 ```
 
-The `applySchedules` function automatically creates, updates, or deletes schedules as needed.
+The [applySchedules](mdc:apps/site/src/lib/server/_worker/apply-schedules.ts) function automatically creates, updates, or deletes schedules as needed.

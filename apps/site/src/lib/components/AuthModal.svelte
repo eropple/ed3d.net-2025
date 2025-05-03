@@ -40,7 +40,7 @@
 			<div class="mb-4 flex items-center justify-between border-b border-gray-200 pb-4">
 				<Dialog.Title class="text-lg font-semibold text-gray-900">Sign In / Sign Up</Dialog.Title>
 				<Dialog.Close
-					class="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+					class="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-secondary focus:ring-offset-2"
 					aria-label="Close"
 				>
 					<!-- Simple X icon -->
@@ -67,13 +67,13 @@
 								closeModal(); // Close modal on success
 							} else {
 								const message = data?.message || 'Failed to send login link. Please try again.';
-								toast.push(message, { theme: { '--toastBackground': 'hsl(0 100% 50%)', '--toastColor': 'white' } });
+								toast.push(message, { theme: { '--toastBackground': 'var(--color-error)', '--toastColor': 'var(--color-white)' } });
 							}
 						} else if (result.type === 'failure') {
 							const message = (result.data as any)?.message || 'An unexpected error occurred. Please try again.';
-							toast.push(message, { theme: { '--toastBackground': 'hsl(0 100% 50%)', '--toastColor': 'white' } });
+							toast.push(message, { theme: { '--toastBackground': 'var(--color-error)', '--toastColor': 'var(--color-white)' } });
 						} else if (result.type === 'error') {
-							toast.push('A network error occurred. Please check your connection.', { theme: { '--toastBackground': 'hsl(0 100% 50%)', '--toastColor': 'white' } });
+							toast.push('A network error occurred. Please check your connection.', { theme: { '--toastBackground': 'var(--color-error)', '--toastColor': 'var(--color-white)' } });
 							console.error('Enhance fetch error:', result.error);
 						}
 					};
@@ -88,7 +88,7 @@
 					required
 					bind:value={magicLinkEmail}
 					disabled={submittingMagicLink}
-					class="mb-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
+					class="mb-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm placeholder-gray-400 focus:border-secondary focus:outline-none focus:ring-1 focus:ring-secondary disabled:opacity-50"
 				/>
 				<!-- Add hidden input for redirectPath -->
 				{#if redirectPath && redirectPath.startsWith('/')}
@@ -97,7 +97,7 @@
 				<button
 					type="submit"
 					disabled={submittingMagicLink}
-					class="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+					class="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-less-dark focus:outline-none focus:ring-2 focus:ring-secondary focus:ring-offset-2 disabled:opacity-50"
 				>
 					{submittingMagicLink ? 'Sending...' : 'Send Login Link'}
 				</button>
@@ -109,7 +109,7 @@
 				{#each AUTH_METHODS as method}
 					<button
 						onclick={() => startSocialLogin(method.id)}
-						class="flex w-full items-center justify-center rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+						class="flex w-full items-center justify-center rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-secondary focus:ring-offset-2"
 					>
 						<i class="{method.icon} mr-2"></i>
 						{method.label}

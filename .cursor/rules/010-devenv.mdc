@@ -65,8 +65,8 @@ The environment uses a combination of:
 
 ### Adding a New Service
 
-1. Add the service definition to `_dev-env/kustomization.yaml` 
-2. Add port forwarding in the Tiltfile:
+1. Add the service definition to [_dev-env/kustomization.yaml](mdc:_dev-env/kustomization.yaml) 
+2. Add port forwarding in the [Tiltfile](mdc:Tiltfile):
    ```python
    # note: this is Starlark, not Python
    k8s_resource('localdev-myservice', port_forwards=["8080:80"], labels=["98-svc"])
