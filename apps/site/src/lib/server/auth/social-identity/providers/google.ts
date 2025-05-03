@@ -63,25 +63,34 @@ export class GoogleProvider extends OAuth2Provider {
 
       logger.debug({ userId: data.id }, "Successfully fetched Google user info");
 
-      // Extract username from email for consistency
-      const username = data.email.split("@")[0];
+      // Use email for provider username
+      const username = data.email;
+
+      if (!username) {
+        logger.error({ data }, "Google user info missing email");
+        throw new Error("Google user info is missing the email address.");
+      }
 
       return {
         id: data.id,
-        username,
+        username, // Use email as the provider username
         displayName: data.name,
         email: data.email,
         avatarUrl: data.picture,
-        profileUrl: `https://myaccount.google.com/`,
+        profileUrl: `https://myaccount.google.com/`, // Google doesn't have direct profile links
       };
     } catch (error) {
       logger.error({ error }, "Error fetching Google user info");
+      // Rethrow specific errors or a generic one
+      if (error instanceof Error) {
+          throw error;
+      }
       throw new Error("Failed to fetch user information from Google");
     }
   }
 
   getProfileUrl(username: string): string {
-    // Google doesn't have an easy way to link to a user profile by username alone
+    // Google doesn't have an easy way to link to a user profile by username/email alone
     return "https://myaccount.google.com/";
   }
 

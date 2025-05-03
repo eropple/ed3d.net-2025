@@ -146,6 +146,9 @@ function loadAuthConfig(): AuthConfig {
       secureCookies: getBool("AUTH__SESSION__SECURE_COOKIES", process.env.NODE_ENV === "production"),
       cookieDomain: getStr("AUTH__SESSION__COOKIE_DOMAIN", ""),
     },
+    magicLink: {
+      expirationTime: getStr("AUTH__MAGIC_LINK__EXPIRATION_TIME", "15m"),
+    },
   };
 }
 

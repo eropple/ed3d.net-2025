@@ -1,19 +1,23 @@
-// src/lib/server/auth/service.ts
 import crypto from "crypto";
 
-import { eq } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
+import ms from "ms";
 import type { Logger } from "pino";
+import type { DeepReadonly } from "utility-types";
 
 import { UserIds, type UserId } from "../../domain/users/ids.js";
 import type { UserPrivate, UserPublic } from "../../domain/users/types.js";
 import type { StringUUID } from "../../ext/typebox/index.js";
-import { SOCIAL_OAUTH2_PROVIDER_KIND, USERS } from "../db/schema/index.js";
+import type { UrlsConfig } from "../_config/types/index.js";
+import { MAGIC_LINKS, SOCIAL_OAUTH2_PROVIDER_KIND, USERS } from "../db/schema/index.js";
 import type { SocialOAuth2ProviderKind } from "../db/schema/index.js";
 import type { Drizzle, DrizzleRO } from "../db/types.js";
 import { type UserService } from "../domain/users/service.js";
-import type { VaultService } from "../vault/service.js";
+import { type EmailService } from "../email/service.js";
 
 import { type ATProtoService } from "./atproto/service.js";
+import type { AuthConfig } from "./config.js";
+import type { SessionService } from "./session/service.js";
 import { type SocialIdentityService } from "./social-identity/service.js";
 
 export class AuthService {
@@ -22,11 +26,13 @@ export class AuthService {
   constructor(
     logger: Logger,
     private readonly db: Drizzle,
-    private readonly dbRO: DrizzleRO,
     private readonly userService: UserService,
     private readonly socialIdentityService: SocialIdentityService,
     private readonly atprotoService: ATProtoService,
-    private readonly vault: VaultService
+    private readonly sessionService: SessionService,
+    private readonly emailService: EmailService,
+    private readonly authConfig: DeepReadonly<AuthConfig>,
+    private readonly urlsConfig: DeepReadonly<UrlsConfig>,
   ) {
     this.logger = logger.child({ context: this.constructor.name });
   }
@@ -228,12 +234,13 @@ export class AuthService {
   /**
    * Get all available OAuth providers
    */
-  async getAvailableProviders(): Promise<{
+  async getAvailableAuthMethods(): Promise<{
     social: Array<{
       id: SocialOAuth2ProviderKind;
       name: string;
     }>;
     atproto: boolean;
+    magicLink: boolean;
   }> {
     // List all supported social providers
     const socialProviders = SOCIAL_OAUTH2_PROVIDER_KIND.enumValues.map(id => ({
@@ -243,7 +250,8 @@ export class AuthService {
 
     return {
       social: socialProviders,
-      atproto: true // ATProto is always available
+      atproto: true, // ATProto is always available
+      magicLink: true // Magic link is always available
     };
   }
 
@@ -332,5 +340,268 @@ export class AuthService {
       social: missingSocial,
       atproto: !connections.atproto
     };
+  }
+
+  /**
+   * Private method to create a magic link and send the email
+   */
+  private async _createMagicLink(
+    email: string,
+    type: "login" | "verify",
+    userUuid: StringUUID | null,
+    executor: Drizzle
+  ): Promise<string> {
+    const logger = this.logger.child({ fn: "_createMagicLink", emailHash: crypto.createHash("sha512").update(email).digest("hex"), type });
+
+    // Calculate expiration time based on the configured duration
+    const expirationMs = ms(this.authConfig.magicLink.expirationTime);
+    const expiresAt = new Date(Date.now() + expirationMs);
+
+    // Create a magic link record
+    const [magicLink] = await executor.insert(MAGIC_LINKS).values({
+      email,
+      type,
+      userUuid,
+      expiresAt,
+    }).returning();
+
+    if (!magicLink) {
+      throw new Error("Failed to create magic link");
+    }
+
+    // Generate the full magic link URL
+    const magicLinkUrl = new URL(`/auth/magic-link/callback`, this.urlsConfig.frontendBaseUrl);
+    magicLinkUrl.searchParams.set("token", magicLink.token);
+
+    // Determine the right subject and content for the email
+    const subject = type === "login"
+      ? "Sign in to ed3d.net"
+      : "Verify your email address for ed3d.net";
+
+    const text = type === "login"
+      ? `Click the link below to sign in to ed3d.net:\n\n${magicLinkUrl.toString()}\n\nThis link will expire in ${this.authConfig.magicLink.expirationTime}.`
+      : `Click the link below to verify your email address for ed3d.net:\n\n${magicLinkUrl.toString()}\n\nThis link will expire in ${this.authConfig.magicLink.expirationTime}.`;
+
+    const html = type === "login"
+      ? `<p>Click the link below to sign in to ed3d.net:</p><p><a href="${magicLinkUrl.toString()}">${magicLinkUrl.toString()}</a></p><p>This link will expire in ${this.authConfig.magicLink.expirationTime}.</p>`
+      : `<p>Click the link below to verify your email address for ed3d.net:</p><p><a href="${magicLinkUrl.toString()}">${magicLinkUrl.toString()}</a></p><p>This link will expire in ${this.authConfig.magicLink.expirationTime}.</p>`;
+
+    await this.emailService.sendEmail({
+      to: email,
+      subject,
+      text,
+      html,
+    });
+
+    logger.info({ magicLinkUuid: magicLink.magicLinkUuid }, "Magic link created and email sent");
+    return magicLink.token;
+  }
+
+  /**
+   * Request a login magic link
+   * @param email The email address to send the login link to
+   * @returns The token that was generated
+   */
+  async requestLoginLink(email: string): Promise<string> {
+    const logger = this.logger.child({ fn: "requestLoginLink", emailHash: crypto.createHash("sha512").update(email).digest("hex") });
+
+    return await this.db.transaction(async (tx) => {
+      // Check if a user with the email exists, but don't require it
+      const user = await this.userService.getByEmail(email, tx);
+      const userUuid = user ? UserIds.toUUID(user.userId) : null;
+
+      return this._createMagicLink(email, "login", userUuid, tx);
+    });
+  }
+
+  /**
+   * Request a verification magic link
+   * @param userOrUserId The user or user ID that needs email verification
+   * @param email Optional new email to verify (if not provided, uses user's current email)
+   * @returns The token that was generated
+   */
+  async requestVerifyLink(
+    userOrUserId: UserPrivate | UserId,
+    email?: string
+  ): Promise<string> {
+    const userId = typeof userOrUserId === "string" ? userOrUserId : userOrUserId.userId;
+    const logger = this.logger.child({ fn: "requestVerifyLink", userId });
+
+    return await this.db.transaction(async (tx) => {
+      // Get the user
+      const user = await this.userService.getById(userId, tx);
+      if (!user) {
+        logger.error("User not found");
+        throw new Error("User not found");
+      }
+
+      // Determine which email to verify
+      const verifyEmail = email || user.email;
+
+      // If a new email is provided, check if it's already in use by another user
+      if (email && email !== user.email) {
+        const existingUser = await this.userService.getByEmail(email, tx);
+        if (existingUser && existingUser.userId !== userId) {
+          logger.info({ existingUserId: existingUser.userId }, "Email address is already in use");
+          throw new Error("Email address is already in use");
+        }
+      }
+
+      const userUuid = UserIds.toUUID(userId);
+      return this._createMagicLink(verifyEmail, "verify", userUuid, tx);
+    });
+  }
+
+  /**
+   * Verify a magic link and perform the associated action (login or email verification)
+   * @param token The token from the magic link
+   * @returns The result of the verification, or null if the link is invalid
+   */
+  async verifyMagicLink(
+    token: string
+  ): Promise<{
+    type: "login" | "verify";
+    user: UserPrivate;
+    session?: { token: string; expiresAt: Date };
+  } | null> {
+    const logger = this.logger.child({ fn: "verifyMagicLink" });
+
+    return await this.db.transaction(async (tx) => {
+      // Find the magic link
+      const magicLinks = await tx.select()
+        .from(MAGIC_LINKS)
+        .where(
+          and(
+            eq(MAGIC_LINKS.token, token),
+            isNull(MAGIC_LINKS.usedAt)
+          )
+        )
+        .limit(1);
+
+      if (magicLinks.length === 0) {
+        logger.debug("Magic link not found or already used");
+        return null;
+      }
+
+      const magicLink = magicLinks[0];
+
+      // Check if the link is expired
+      if (magicLink.expiresAt < new Date()) {
+        logger.debug({ expiresAt: magicLink.expiresAt }, "Magic link is expired");
+        return null;
+      }
+
+      // Mark the link as used immediately to prevent reuse
+      await tx.update(MAGIC_LINKS)
+        .set({ usedAt: new Date() })
+        .where(eq(MAGIC_LINKS.magicLinkUuid, magicLink.magicLinkUuid));
+
+      // Handle different scenarios based on whether we have a user and the link type
+      let userId: UserId;
+
+      if (magicLink.userUuid) {
+        // We have an existing user
+        logger.debug({ userUuid: magicLink.userUuid }, "Magic link is for an existing user");
+        userId = UserIds.toRichId(magicLink.userUuid);
+
+        // If it's a verification link, verify the email
+        if (magicLink.type === "verify") {
+          // Check if the user's current email matches the link's email
+          const user = await this.userService.getById(userId, tx);
+          if (!user) {
+            logger.error({ userUuid: magicLink.userUuid }, "User not found");
+            return null;
+          }
+
+          // If emails don't match, update the user's email and mark as verified
+          if (user.email !== magicLink.email) {
+            await tx.update(USERS)
+              .set({
+                email: magicLink.email,
+                emailVerifiedAt: new Date(),
+                updatedAt: new Date()
+              })
+              .where(eq(USERS.userUuid, magicLink.userUuid));
+
+            logger.info({ userId, newEmail: magicLink.email }, "Updated user email and marked as verified");
+          } else {
+            // Just mark the current email as verified
+            await tx.update(USERS)
+              .set({ emailVerifiedAt: new Date() })
+              .where(eq(USERS.userUuid, magicLink.userUuid));
+
+            logger.info({ userId }, "Marked user email as verified");
+          }
+        }
+      } else {
+        // No user UUID - this must be a new user login
+        logger.debug({ email: magicLink.email }, "Magic link is for a new user");
+
+        // Check if a user with this email now exists (could have been created after the link)
+        const existingUser = await this.userService.getByEmail(magicLink.email, tx);
+
+        if (existingUser) {
+          // User was created after the link was generated
+          userId = existingUser.userId;
+          logger.debug({ userId }, "Found existing user by email");
+        } else {
+          // Create a new user
+          // Generate username from email
+          const baseUsername = magicLink.email.split("@")[0].toLowerCase().replace(/[^a-z0-9]/g, "");
+          const username = await this.userService.generateUniqueUsername(baseUsername, tx);
+
+          // Create the user
+          const newUser = await this.userService.createUser({
+            email: magicLink.email,
+            username,
+            emailVerified: true // Mark as verified since they clicked the link
+          }, tx);
+
+          userId = newUser.userId;
+          logger.info({ userId }, "Created new user from magic link");
+        }
+      }
+
+      // Get the updated user
+      const user = await this.userService.getById(userId, tx);
+      if (!user) {
+        logger.error({ userId }, "User not found after processing magic link");
+        return null;
+      }
+
+      // If this is a login link, create a session
+      if (magicLink.type === "login") {
+        const session = await this.sessionService.createSession(userId, tx);
+        logger.info({ userId }, "Created session for user from magic link");
+
+        return {
+          type: magicLink.type,
+          user,
+          session
+        };
+      }
+
+      // For verification links, just return the user
+      return {
+        type: magicLink.type,
+        user
+      };
+    });
+  }
+
+  /**
+   * Start email change verification process
+   * Sends a verification link to the new email address
+   */
+  async startEmailChangeVerification(
+    userId: UserId,
+    newEmail: string
+  ): Promise<void> {
+    const logger = this.logger.child({ fn: "startEmailChangeVerification", userId, newEmailHash: crypto.createHash("sha512").update(newEmail).digest("hex") });
+
+    // Request a verification link for the new email
+    await this.requestVerifyLink(userId, newEmail);
+
+    logger.info("Email change verification started");
   }
 }

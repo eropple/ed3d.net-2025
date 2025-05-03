@@ -1,4 +1,4 @@
-import { error, isRedirect, redirect } from "@sveltejs/kit";
+import { error, isHttpError, isRedirect, redirect } from "@sveltejs/kit";
 
 import type { RequestHandler } from "./$types";
 
@@ -37,7 +37,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
     // Redirect to the target page
     throw redirect(302, redirectTo);
   } catch (err) {
-    if (isRedirect(err)) {
+    if (isRedirect(err) || isHttpError(err)) {
       throw err;
     }
 

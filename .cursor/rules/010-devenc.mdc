@@ -1,3 +1,8 @@
+---
+description: 
+globs: Tiltfile,.env.development,_dev-env/**/*,package.json,.tool-versions,pnpm-workspace.yaml
+alwaysApply: false
+---
 # Development Environment Guide
 
 The ed3d.net application uses a containerized local development environment managed by Tilt, which orchestrates multiple services running in Kubernetes.

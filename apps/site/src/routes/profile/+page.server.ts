@@ -41,7 +41,7 @@ export const actions: Actions = {
     }
 
     try {
-      await locals.deps.userService.updateEmail(locals.user.userId, email);
+      await locals.deps.users.updateEmail(locals.user.userId, email);
       return { success: true };
     } catch (error) {
       logger.error({ err: error }, "Error updating email");

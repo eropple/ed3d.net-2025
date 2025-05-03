@@ -71,25 +71,48 @@ export const USERS = pgTable("users", {
 });
 export type DBUser = typeof USERS.$inferSelect;
 
-export const USER_EMAIL_LINKS = pgTable("user_email_links", {
-  userEmailLinkUuid: ULIDAsUUID().primaryKey(),
+export const MAGIC_LINKS = pgTable("magic_links", {
+  magicLinkUuid: ULIDAsUUID().primaryKey(),
 
-  userUuid: uuid()
-    .references(() => USERS.userUuid)
-    .notNull(),
+  // The email address this link was sent to
+  email: text("email").notNull(),
 
+  // Type of magic link (reusing the existing enum)
   type: USER_EMAIL_LINK_TYPES("type").notNull(),
-  token: text("token").notNull().$defaultFn(() => cryptoRandomString({ length: 32, type: "distinguishable" })),
 
+  // Generated token for the magic link
+  token: text("token")
+    .notNull()
+    .unique()
+    .$defaultFn(() => cryptoRandomString({ length: 32, type: "distinguishable" })),
 
-  expiresAt: timestamp({
+  // Optional reference to a user (if the link is for an existing user)
+  userUuid: ULIDAsUUID("user_uuid")
+    .references(() => USERS.userUuid),
+
+  // When the link expires
+  expiresAt: timestamp("expires_at", {
     withTimezone: true,
     mode: "date",
   }).notNull().$defaultFn(() => new Date(Date.now() + ms("15m"))),
 
+  // When the link was used (null if unused)
+  usedAt: timestamp("used_at", {
+    withTimezone: true,
+    mode: "date",
+  }),
+
   ...CREATED_AT_MIXIN,
-});
-export type DBUserEmailLink = typeof USER_EMAIL_LINKS.$inferSelect;
+}, (t) => [
+  // Index for fast lookups by token
+  index("magic_links_token_idx").on(t.token),
+  // Index for finding a user's links
+  index("magic_links_user_idx").on(t.userUuid),
+  // Index for checking unused links
+  index("magic_links_unused_idx").on(t.usedAt, t.expiresAt)
+]);
+export type DBMagicLink = typeof MAGIC_LINKS.$inferSelect;
+
 export const SOCIAL_OAUTH2_PROVIDER_KIND = pgEnum(
   "social_oauth2_provider_kind",
   ["github", "google"],
@@ -130,9 +153,8 @@ export const USER_SOCIAL_OAUTH2_IDENTITIES = pgTable("user_social_oauth2_identit
 
   ...TIMESTAMPS_MIXIN,
 }, (t) => [
-  {
-    oneProviderRowPerUser: unique("one_provider_row_per_user").on(t.userUuid, t.provider),
-  }
+  unique("one_provider_row_per_user").on(t.userUuid, t.provider),
+  unique("unique_provider_identity").on(t.provider, t.providerId)
 ]);
 export type DBUserSocialOAuth2Identity = typeof USER_SOCIAL_OAUTH2_IDENTITIES.$inferSelect;
 

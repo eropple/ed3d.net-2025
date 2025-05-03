@@ -1,5 +1,6 @@
 import type { Cookies } from "@sveltejs/kit";
 import type { Logger } from "pino";
+import type { DeepReadonly } from "utility-types";
 
 import type { AuthConfig } from "../config.js";
 
@@ -11,7 +12,7 @@ export function setSessionCookie(
   cookies: Cookies,
   token: string,
   expiresAt: Date,
-  config: AuthConfig
+  config: DeepReadonly<AuthConfig>
 ): void {
   logger.fatal({ authConfig: config }, "Setting session cookie");
   const httpOnly = true;

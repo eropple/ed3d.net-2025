@@ -270,20 +270,23 @@ export async function configureBaseAwilixContainer(
     authService: asFunction(({
       logger,
       db,
-      dbRO,
-      vault,
       users,
       socialIdentityService,
-      atprotoService
+      atprotoService,
+      sessionService,
+      emailService,
+      config
     }: AppRequestCradle) => {
       return new AuthService(
         logger,
         db,
-        dbRO,
         users,
         socialIdentityService,
         atprotoService,
-        vault
+        sessionService,
+        emailService,
+        config.auth,
+        config.urls
       );
     }),
 

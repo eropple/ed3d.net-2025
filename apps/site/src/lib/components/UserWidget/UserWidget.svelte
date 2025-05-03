@@ -1,10 +1,19 @@
 <script lang="ts">
-  import { DropdownMenu } from "bits-ui";
+  import { enhance } from '$app/forms';
+  import { DropdownMenu } from 'bits-ui';
+  import { toast } from '@zerodevx/svelte-toast';
   import type { UserPrivate } from "$lib/domain/users/types";
   import { AUTH_METHODS } from "./constants";
 
-  export let user: UserPrivate | null = null;
-  export let loading: boolean = false;
+  type MagicLinkResponse = { success: boolean; message: string };
+
+  let { user = $bindable(null), loading = $bindable(false) } = $props<{
+    user?: UserPrivate | null;
+    loading?: boolean;
+  }>();
+
+  let magicLinkEmail = $state('');
+  let submittingMagicLink = $state(false);
 </script>
 
 <DropdownMenu.Root>
@@ -26,17 +35,17 @@
   </DropdownMenu.Trigger>
   <DropdownMenu.Portal>
     <DropdownMenu.Content
-      class="w-56 rounded-lg border border-gray-200 bg-white p-1.5 shadow-lg"
+      class="w-64 rounded-lg border border-gray-200 bg-white p-2 shadow-lg"
       sideOffset={8}
     >
       {#if user}
         <DropdownMenu.Item
           class="flex h-10 select-none items-center rounded-md px-3 py-2 text-sm font-medium data-[highlighted]:bg-gray-100 focus:outline-none"
         >
-          <span class="flex items-center">
+          <a href="/profile" class="flex items-center">
             <i class="fa-regular fa-user mr-2"></i>
             Profile
-          </span>
+          </a>
         </DropdownMenu.Item>
         <DropdownMenu.Item
           class="flex h-10 select-none items-center rounded-md px-3 py-2 text-sm font-medium data-[highlighted]:bg-gray-100 focus:outline-none"
@@ -48,8 +57,60 @@
           </span>
         </DropdownMenu.Item>
       {:else}
-        <div class="p-2 text-center text-sm font-medium text-gray-700">
-          Sign in with:
+        <form
+          method="POST"
+          action="/auth/magic-link/request-login"
+          class="p-2 border-b border-gray-200 mb-2"
+          use:enhance={() => {
+            submittingMagicLink = true;
+            return async ({ result }) => {
+              submittingMagicLink = false;
+              if (result.type === 'success') {
+                // Assert the type of result.data
+                const data = result.data as MagicLinkResponse | undefined;
+                if (data?.success) {
+                  toast.push('Check your email for a login link!');
+                  magicLinkEmail = '';
+                } else {
+                  // Handle cases where fetch succeeded but server reported failure
+                  const message = data?.message || 'Failed to send login link. Please try again.';
+                  toast.push(message, { theme: { '--toastBackground': 'hsl(0 100% 50%)', '--toastColor': 'white' } });
+                }
+              } else if (result.type === 'failure') {
+                // Handle fetch errors (network issues, 4xx/5xx status codes without specific JSON)
+                // Try to get a message from the potentially non-JSON response or use a default
+                const message = (result.data as any)?.message || 'An unexpected error occurred. Please try again.';
+                toast.push(message, { theme: { '--toastBackground': 'hsl(0 100% 50%)', '--toastColor': 'white' } });
+              } else if (result.type === 'error') {
+                // Handle client-side errors during fetch preparation or processing
+                toast.push('A network error occurred. Please check your connection.', { theme: { '--toastBackground': 'hsl(0 100% 50%)', '--toastColor': 'white' } });
+                console.error('Enhance fetch error:', result.error);
+              }
+            };
+          }}
+        >
+          <label for="magic-link-email" class="block text-sm font-medium text-gray-700 mb-1">Email Login</label>
+          <input
+            id="magic-link-email"
+            type="email"
+            name="email"
+            placeholder="you@example.com"
+            required
+            bind:value={magicLinkEmail}
+            disabled={submittingMagicLink}
+            class="w-full px-3 py-2 text-sm border border-gray-300 rounded-md mb-2 disabled:opacity-50 focus:ring-blue-500 focus:border-blue-500"
+          />
+          <button
+            type="submit"
+            disabled={submittingMagicLink}
+            class="w-full px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          >
+            {submittingMagicLink ? 'Sending...' : 'Send Login Link'}
+          </button>
+        </form>
+
+        <div class="p-2 text-center text-xs font-medium text-gray-500">
+          Or sign in with:
         </div>
         {#each AUTH_METHODS as method}
           <DropdownMenu.Item

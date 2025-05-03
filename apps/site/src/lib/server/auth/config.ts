@@ -23,6 +23,11 @@ export const AuthConfig = Type.Object({
     // Domain for cookies
     cookieDomain: Type.Optional(Type.String()),
   }),
+
+  // Magic Link configuration
+  magicLink: Type.Object({
+    expirationTime: Type.String({ default: "15m" }),
+  }),
 });
 
 export type AuthConfig = Static<typeof AuthConfig>;

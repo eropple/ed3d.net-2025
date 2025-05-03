@@ -1,3 +1,8 @@
+---
+description: 
+globs: ./package.json,./apps/site/**/*
+alwaysApply: false
+---
 # Ed3d.net Application Architecture Reference
 
 ## Core Architecture
@@ -78,6 +83,11 @@ logger: Logger
 New dependencies should be registered in the appropriate container:
 - Application-wide services in `configureBaseAwilixContainer()`
 - Request-scoped services in `configureRequestScope()`
+
+### Logging
+Our injector always includes `logger`, which is a Pino logger. In classes, this should be used to create an instance-level child logger, e.g. `this.logger = logger.child({ component: MyClassName.constructor.name })`. In functions, both inside and out of a class, we should then use the most specific logger to create a child of that, e.g. `const logger = this.logger.child({ fn: MyFunction.name })`.
+
+If a particular piece of code is going to need to log the same data multiple times (such as a for loop over an array of objects), then create a further child logger that adds the necessary attributes. Do not add the same attribute multiple times in multiple log lines.
 
 ### Database Access Pattern
 - Use `dbRO` for read operations to leverage database replicas

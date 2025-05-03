@@ -29,7 +29,7 @@ export class SessionService {
   /**
    * Create a new session for a user
    */
-  async createSession(userId: UserId): Promise<{ token: string; expiresAt: Date }> {
+  async createSession(userId: UserId, executor: Drizzle = this.db): Promise<{ token: string; expiresAt: Date }> {
     const logger = this.logger.child({ fn: "createSession", userId });
     const userUuid = UserIds.toUUID(userId);
 
@@ -43,7 +43,7 @@ export class SessionService {
     const expiresAt = new Date(Date.now() + durationMs);
 
     // Create a session record in the database
-    await this.db.insert(USER_SESSIONS).values({
+    await executor.insert(USER_SESSIONS).values({
       userUuid,
       tokenHash,
       expiresAt,
@@ -57,7 +57,7 @@ export class SessionService {
   /**
    * Validate a session token and return the associated user
    */
-  async validateSession(token: string): Promise<UserPrivate | null> {
+  async validateSession(token: string, executor: Drizzle = this.db): Promise<UserPrivate | null> {
     if (!token) return null;
 
     const logger = this.logger.child({ fn: "validateSession" });
@@ -65,7 +65,7 @@ export class SessionService {
 
     try {
       // Find the session by token hash and join with users table
-      const result = await this.dbRO
+      const result = await executor
         .select({
           session: USER_SESSIONS,
           user: USERS
@@ -99,7 +99,7 @@ export class SessionService {
       }
 
       // Update last accessed timestamp
-      await this.db
+      await executor
         .update(USER_SESSIONS)
         .set({ lastAccessedAt: new Date() })
         .where(eq(USER_SESSIONS.sessionUuid, session.sessionUuid));
@@ -124,7 +124,7 @@ export class SessionService {
   /**
    * Revoke a session by token
    */
-  async revokeSession(token: string): Promise<boolean> {
+  async revokeSession(token: string, executor: Drizzle = this.db): Promise<boolean> {
     if (!token) return false;
 
     const logger = this.logger.child({ fn: "revokeSession" });
@@ -132,7 +132,7 @@ export class SessionService {
 
     try {
       // Find and revoke the session
-      await this.db
+      await executor
         .update(USER_SESSIONS)
         .set({ revokedAt: new Date() })
         .where(eq(USER_SESSIONS.tokenHash, tokenHash));
@@ -148,13 +148,13 @@ export class SessionService {
   /**
    * Revoke all sessions for a user
    */
-  async revokeAllUserSessions(userId: UserId): Promise<boolean> {
+  async revokeAllUserSessions(userId: UserId, executor: Drizzle = this.db): Promise<boolean> {
     const logger = this.logger.child({ fn: "revokeAllUserSessions", userId });
     const userUuid = UserIds.toUUID(userId);
 
     try {
       // Revoke all sessions for the user
-      await this.db
+      await executor
         .update(USER_SESSIONS)
         .set({ revokedAt: new Date() })
         .where(eq(USER_SESSIONS.userUuid, userUuid));
