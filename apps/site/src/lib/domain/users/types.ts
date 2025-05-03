@@ -45,7 +45,6 @@ export const UserPrivate = Type.Composite([
 
     grants: SiteGrants,
 
-    lastAccessedAt: Type.Optional(Type.Number()),
     createdAt: Type.Number(),
     disabledAt: Type.Optional(Type.Number()),
   })

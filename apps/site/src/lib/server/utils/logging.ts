@@ -27,6 +27,7 @@ export function buildStandardLogger(
           "cookies",
           "headers.authorization",
           `headers.cookie`,
+          "taskToken",
           ...(opts?.extraRedactions ?? []),
         ].map((h) => h.toLowerCase()),
       },

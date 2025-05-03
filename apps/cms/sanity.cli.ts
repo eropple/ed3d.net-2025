@@ -1,9 +1,11 @@
 import {defineCliConfig} from 'sanity/cli'
 import { requireStr } from "node-getenv";
 
+console.log(Object.entries(process.env).filter(([key]) => key.startsWith('ED3D_CMS_')));
+
 export default defineCliConfig({
   api: {
-    projectId: requireStr('ED3D_CMS_PROJECT_ID'),
-    dataset: requireStr('ED3D_CMS_DATASET'),
+    projectId: "iqiyza0w",
+    dataset: "production",
   }
 })

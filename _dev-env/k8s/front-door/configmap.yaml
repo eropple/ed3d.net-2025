@@ -5,8 +5,7 @@ metadata:
 data:
   Caddyfile: |
     #{SITE_HOSTNAME}#:80 {
-      reverse_proxy /* http://host.docker.internal:#{SITE_PORT}#
-      reverse_proxy / http://host.docker.internal:#{SITE_PORT}#
+      reverse_proxy /* http://host.docker.internal:#{SITE_PORT}# 
     }
 
     #{KEYCLOAK_HOSTNAME}#:80 {

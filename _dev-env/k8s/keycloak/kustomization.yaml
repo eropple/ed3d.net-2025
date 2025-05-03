@@ -1,8 +1,0 @@
-resources:
-  - deployment.yaml
-  - postgres.yaml
-
-configMapGenerator:
-  - name: keycloak-realm-config
-    files:
-      - config/ed3dnet.json

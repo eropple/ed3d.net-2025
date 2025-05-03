@@ -1,4 +1,6 @@
 // apps/site/src/lib/server/vault/keystore.ts
+import type { Logger } from "pino";
+
 import { ENCRYPTION_STRATEGIES, type EncryptionStrategy } from "./strategies.js";
 
 export type VaultConfig = {
@@ -13,15 +15,28 @@ type ParsedKey = {
 };
 
 export class VaultKeyStore {
+  private readonly logger: Logger;
+  private initialized = false;
+
   private keys: Map<string, ParsedKey> = new Map();
   private primaryKey: ParsedKey | null = null;
 
-  constructor(private readonly config: VaultConfig) {}
+  constructor(logger: Logger, private readonly config: VaultConfig) {
+    this.logger = logger.child({
+      component: "VaultKeyStore",
+    });
+  }
 
   /**
    * Initialize the keystore by parsing all keys and importing them as CryptoKey objects
    */
   async initialize(): Promise<void> {
+    if (this.initialized) {
+      return;
+    }
+
+    this.logger.debug("Initializing keystore");
+
     // Parse and import the primary key
     const [primaryKey, ...legacyKeys] = [
       this.config.primaryKey,
@@ -29,14 +44,22 @@ export class VaultKeyStore {
     ];
 
     // Initialize the primary key
+    this.logger.debug("Initializing primary key");
     this.primaryKey = await this.parseAndImportKey(primaryKey);
     this.keys.set(this.primaryKey.version, this.primaryKey);
 
     // Initialize legacy keys if any
+    let legacyKeyCount = 0;
     for (const legacyKeyStr of legacyKeys) {
+      this.logger.debug({ legacyKeyCount }, "Initializing legacy key");
       const legacyKey = await this.parseAndImportKey(legacyKeyStr);
       this.keys.set(legacyKey.version, legacyKey);
+      legacyKeyCount++;
     }
+
+    this.logger.debug({ legacyKeyCount }, "Initialized legacy keys");
+
+    this.initialized = true;
   }
 
   /**
@@ -44,6 +67,9 @@ export class VaultKeyStore {
    */
   private async parseAndImportKey(keyStr: string): Promise<ParsedKey> {
     const [strategy, version, base64Key] = keyStr.split(":");
+    const logger = this.logger.child({ strategy, version });
+
+    logger.debug("Parsing key");
 
     if (!strategy || !version || !base64Key) {
       throw new Error("Invalid key format. Expected strategy:version:base64key");
@@ -53,15 +79,30 @@ export class VaultKeyStore {
       throw new Error(`Unsupported encryption strategy: ${strategy}`);
     }
 
-    const keyData = Uint8Array.from(atob(base64Key), c => c.charCodeAt(0));
 
-    const cryptoKey = await crypto.subtle.importKey(
-      "raw",
-      keyData,
-      { name: ENCRYPTION_STRATEGIES[strategy as EncryptionStrategy].algorithm },
-      false, // not extractable
-      ["encrypt", "decrypt"]
-    );
+    let keyData: Uint8Array;
+    try {
+      keyData = Uint8Array.from(atob(base64Key), c => c.charCodeAt(0));
+    } catch (err) {
+      logger.error({ err }, "Failed to parse key");
+      throw err;
+    }
+
+    let cryptoKey: CryptoKey;
+    try {
+      cryptoKey = await crypto.subtle.importKey(
+        "raw",
+        keyData,
+        { name: ENCRYPTION_STRATEGIES[strategy as EncryptionStrategy].algorithm },
+        true, // not extractable
+        ["encrypt", "decrypt"]
+      );
+    } catch (err) {
+      logger.error({ err }, "Failed to import key");
+      throw err;
+    }
+
+    logger.debug("Imported key");
 
     return {
       strategy: strategy as EncryptionStrategy,
@@ -73,7 +114,9 @@ export class VaultKeyStore {
   /**
    * Get the primary key and its version
    */
-  getPrimaryKey(): [string, ParsedKey] {
+  async getPrimaryKey(): Promise<[string, ParsedKey]> {
+    await this.initialize();
+
     if (!this.primaryKey) {
       throw new Error("Keystore not initialized");
     }
@@ -83,7 +126,9 @@ export class VaultKeyStore {
   /**
    * Get a key by version
    */
-  getKey(version: string): ParsedKey | undefined {
+  async getKey(version: string): Promise<ParsedKey | undefined> {
+    await this.initialize();
+
     return this.keys.get(version);
   }
 }

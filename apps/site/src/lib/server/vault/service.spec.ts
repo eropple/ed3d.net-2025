@@ -15,7 +15,7 @@ describe("VaultService", () => {
   let service: VaultService;
 
   beforeEach(() => {
-    keyStore = new VaultKeyStore({
+    keyStore = new VaultKeyStore(TEST_LOGGER, {
       primaryKey: validKey1,
       legacyKeys: [validKey2],
     });
@@ -96,7 +96,7 @@ describe("VaultService", () => {
       const encrypted1 = await service.encrypt("test");
 
       // Switch to key 2 as primary
-      const keyStore2 = new VaultKeyStore({
+      const keyStore2 = new VaultKeyStore(TEST_LOGGER, {
         primaryKey: validKey2,
         legacyKeys: [validKey1],
       });
@@ -141,7 +141,7 @@ describe("VaultService", () => {
       const encrypted1 = await service.encrypt("test1");
 
       // Create new service with key 2 as primary
-      const keyStore2 = new VaultKeyStore({
+      const keyStore2 = new VaultKeyStore(TEST_LOGGER, {
         primaryKey: validKey2,
         legacyKeys: [validKey1],
       });
@@ -151,7 +151,7 @@ describe("VaultService", () => {
       const encrypted2 = await service2.encrypt("test2");
 
       // Create service with only key 1
-      const keyStore1Only = new VaultKeyStore({
+      const keyStore1Only = new VaultKeyStore(TEST_LOGGER, {
         primaryKey: validKey1,
       });
       const service1Only = new VaultService(keyStore1Only);

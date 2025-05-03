@@ -10,10 +10,17 @@ import { env } from "$env/dynamic/private";
 
 const { APP_CONFIG, ROOT_LOGGER, SINGLETON_CONTAINER } = await bootstrapSvelte("site");
 
-ROOT_LOGGER.info({ csrfOrigin: env.ORIGIN ?? "NOT SET!!" }, "Initializing hooks.server.ts.");
+ROOT_LOGGER.info({
+  ORIGIN: env.ORIGIN ?? "NOT SET!!",
+  PROTOCOL_HEADER: env.PROTOCOL_HEADER ?? "NOT SET!!",
+  HOST_HEADER: env.HOST_HEADER ?? "NOT SET!!",
+}, "Initializing hooks.server.ts.");
 
-// const SESSION_COOKIE_NAME = APP_CONFIG.auth.session.cookieName;
+const SESSION_COOKIE_NAME = APP_CONFIG.auth.session.cookieName;
 
+if (APP_CONFIG.env === "development") {
+  ROOT_LOGGER.fatal("!!!! REMEMBER TO TURN ON CLOUDFLARE DEVELOPMENT MODE OR HMR WILL EXPLODE !!!!");
+}
 
 export const handle: Handle = sequence(async ({ event, resolve }) => {
   const startTimestamp = Date.now();
@@ -22,29 +29,41 @@ export const handle: Handle = sequence(async ({ event, resolve }) => {
   let logger = ROOT_LOGGER.child({ reqId: requestId });
   const requestContainer = await configureRequestScope(SINGLETON_CONTAINER, requestId);
 
-  const rawHost = event.request.headers.get("host");
+  const host = event.request.headers.get("x-forwarded-host") ?? event.request.headers.get("host");
+
+  let fromIp: string = "unknown";
+  try {
+    fromIp = event.request.headers.get("forwarded")?.trim() ??
+      event.request.headers.get("x-real-ip")?.trim() ??
+      event.request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+      ?? event.getClientAddress();
+  } catch (err) {
+    logger.warn({ err }, "Failed to get client address.");
+  }
 
   logger.info(
     {
-      fn: handle.name,
+      fn: "hook",
       request: {
-        ip: event.getClientAddress(),
-        host: rawHost,
+        from: fromIp,
+        host: host,
         method: event.request.method,
         url: event.url,
-        // headers: isApiRequest ? undefined : [...event.request.headers.keys()],
+        proto: event.request.headers.get("x-forwarded-proto"),
+        referer: event.request.headers.get("referer"),
       },
     },
     "Request started."
   );
 
   // Resolve the session cookie
-  // const sessionCookie = event.cookies.get(SESSION_COOKIE_NAME);
-  // const user = await requestContainer.cradle.auth.resolveSessionCookie(sessionCookie);
-  // @ts-expect-error this is where we set a readonly value
-  // event.locals.user = user;
+  const sessionCookie = event.cookies.get(SESSION_COOKIE_NAME);
+  const user = sessionCookie
+    ? await requestContainer.cradle.sessionService.validateSession(sessionCookie)
+    : null;
 
-  event.locals.user = null;
+  // @ts-expect-error this is where we set a readonly value
+  event.locals.user = user;
 
   if (event.locals.user) {
     logger = logger.child({ userId: event.locals.user.userId });

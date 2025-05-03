@@ -1,0 +1,98 @@
+---
+description: 
+globs: Tiltfile,.env.development,_dev-env/**/*,package.json,.tool-versions,pnpm-workspace.yaml
+alwaysApply: false
+---
+# Development Environment Guide
+
+The ed3d.net application uses a containerized local development environment managed by Tilt, which orchestrates multiple services running in Kubernetes.
+
+## Core Components
+
+### Container Orchestration
+- **Tilt**: Manages the local development environment
+- **Kubernetes**: Provides container orchestration (supported contexts: OrbStack, Rancher Desktop)
+- **Kustomize**: Used for templating Kubernetes resources
+
+### Environment Setup
+- **Port Management**: Each service has configurable ports prefixed by `TILT_PORT_PREFIX`
+- **Namespace Isolation**: Uses Kubernetes namespace defined in `TILT_NAMESPACE` 
+- **Environment Variables**: Uses `NODE_ENV` and other variables for configuration
+
+## Services
+
+The development environment includes the following services:
+
+| Service | Description | Default Ports |
+|---------|-------------|--------------|
+| `localdev-frontdoor` | Front proxy for HTTP traffic | `FRONTDOOR_PORT` |
+| `localdev-postgres` | PostgreSQL database | `POSTGRES__READWRITE__PORT` |
+| `localdev-redis` | Redis cache | `REDIS__PORT` |
+| `localdev-temporal` | Temporal workflow engine | `TEMPORAL__PORT` (API), `TEMPORAL__UI_PORT` (UI) |
+| `localdev-mailpit` | SMTP server and mail catcher | `EMAIL_DELIVERY__SMTP__PORT` (SMTP), `tilt_port_prefix + '26'` (UI) |
+| `localdev-keycloak` | Identity and access management | `KEYCLOAK_PORT` |
+| `localdev-minio` | S3-compatible storage | `S3__PORT` (API), `MINIO_UI_PORT` (UI) |
+
+### Key Tilt Resources
+
+#### Infrastructure Services
+- `wait-for-*` resources ensure dependencies are available before starting the application
+- `wait-for-dependencies` synchronizes all infrastructure readiness checks
+
+#### Development Tools
+- `postgres-studio`: Interactive database explorer via Drizzle Kit
+- `reset-postgres`: Command to reset the database (must be triggered manually)
+- `migrate-postgres`: Applies database migrations and seed data
+
+#### Application
+- `site`: The main SvelteKit application
+
+### Database Management
+
+- **Migrations**: Run automatically on startup via `migrate-postgres`
+- **Seeding**: Data is seeded automatically after migrations
+- **Exploration**: Use Drizzle Studio to explore and interact with the database
+- **Reset**: Manual reset available via the `reset-postgres` resource
+
+### Configuration Management
+
+The environment uses a combination of:
+- Environment variables
+- Kubernetes ConfigMaps and Secrets
+- Template substitution in YAML resources (`#{VARIABLE}#` syntax)
+
+## Extending the Environment
+
+### Adding a New Service
+
+1. Add the service definition to `_dev-env/kustomization.yaml` 
+2. Add port forwarding in the Tiltfile:
+   ```python
+   # note: this is Starlark, not Python
+   k8s_resource('localdev-myservice', port_forwards=["8080:80"], labels=["98-svc"])
+   ```
+3. Add dependency checks if needed:
+   ```python
+   # note: this is Starlark, not Python
+   local_resource("wait-for-myservice",
+       allow_parallel=True,
+       cmd="bash ./_dev-env/scripts/wait-for-myservice.bash",
+       resource_deps=["localdev-myservice"],
+       labels=["99-meta"])
+   ```
+4. Add the new dependency to `wait-for-dependencies`
+
+### Environment Variables
+
+To add new environment variables:
+
+1. Define them in your host environment
+2. Reference them in Kubernetes resources with `#{VARIABLE}#`
+3. Update any required scripts in `_dev-env/scripts/`
+
+### Configuration Files
+
+The `_dev-env` directory contains:
+- Kubernetes manifests for infrastructure services
+- Health check scripts for dependencies
+- Configuration templates

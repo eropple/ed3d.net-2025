@@ -3,13 +3,21 @@
   import { SITE_NAME } from '$lib/constants';
   import { onMount } from 'svelte';
   import { clsx } from 'clsx';
+  import UserWidgetMounter from './UserWidget/UserWidgetMounter.svelte';
+  import AuthModal from './AuthModal.svelte';
 
-  let isOpen = false;
+  let isOpen = $state(false);
+  let authModalOpen = $state(false);
 
-  $: pathname = $page.url.pathname;
+  let pathname = $derived($page.url.pathname);
+  let user = $derived($page.data.user);
 
   function isActive(href: string): boolean {
-    return pathname.toLowerCase().startsWith(href.toLowerCase());
+    return pathname?.toLowerCase().startsWith(href.toLowerCase()) ?? false;
+  }
+
+  function openAuthModal() {
+    authModalOpen = true;
   }
 </script>
 
@@ -46,11 +54,30 @@
           >
             Blog
           </a>
+          {#if !user}
+            <button
+              onclick={openAuthModal}
+              class={clsx([
+                "rounded-md",
+                "px-3",
+                "py-2",
+                "text-lg",
+                "font-medium",
+                "text-gray-300",
+                "hover:text-white",
+                "hover:underline",
+                "hover:decoration-2",
+                "hover:decoration-secondary"
+              ])}
+            >
+              Log In
+            </button>
+          {/if}
         </div>
       </div>
       <div class="-mr-2 flex md:hidden">
         <button
-          on:click={() => (isOpen = !isOpen)}
+          onclick={() => (isOpen = !isOpen)}
           type="button"
           class="bg-primary inline-flex items-center justify-center p-2 rounded-md text-gray-300 hover:text-white"
           aria-controls="mobile-menu"
@@ -92,6 +119,11 @@
           {/if}
         </button>
       </div>
+      <div class="flex items-center">
+        {#if user}
+          <UserWidgetMounter />
+        {/if}
+      </div>
     </div>
   </div>
   {#if isOpen}
@@ -108,12 +140,39 @@
             "hover:underline",
             "hover:decoration-2",
             "hover:decoration-secondary",
-            isActive('/blog') ? ["text-white"] : ["text-gray-300", "hover:text-white"],
+            isActive('/blog') ? ["text-white", "bg-primary-dark"] : ["text-gray-300", "hover:text-white", "hover:bg-primary-dark"],
           ])}
+          onclick={() => isOpen = false}
         >
           Blog
         </a>
+        {#if !user}
+          <button
+            onclick={() => { openAuthModal(); isOpen = false; }}
+            class={clsx([
+              "block",
+              "w-full",
+              "rounded-md",
+              "px-3",
+              "py-2",
+              "text-left",
+              "text-base",
+              "font-medium",
+              "text-gray-300",
+              "hover:text-white",
+              "hover:bg-primary-dark"
+            ])}
+          >
+            Log In
+          </button>
+        {:else}
+          <div class="border-t border-gray-700 pt-4 pb-3">
+            <UserWidgetMounter />
+          </div>
+        {/if}
       </div>
     </div>
   {/if}
 </nav>
+
+<AuthModal bind:open={authModalOpen} redirectPath={pathname} />

@@ -161,7 +161,7 @@ async function getDomainConfig(): Promise<DomainConfig> {
       type: "input",
       name: "baseDomain",
       message: "What is your base domain?",
-      default: existingDomain || "identivine.dev",
+      default: existingDomain || "ed3d.net",
     },
     {
       type: "input",
@@ -177,6 +177,7 @@ async function getDomainConfig(): Promise<DomainConfig> {
 interface DomainEntry {
   subdomain: string;
   service: string;
+  envVarsToUpdate: string[];
 }
 
 function generateTunnelConfig(
@@ -219,12 +220,31 @@ function setupDnsRoutes(tunnelName: string, domains: DomainConfig) {
 async function updateEnvFile(domains: DomainConfig) {
   const envContent = readFileSync(ENV_PATH, "utf8");
 
-  const updates: Record<string, string> = {
-    S3_BASE_URL: `https://${domains.prefix}-s3.${domains.baseDomain}`,
-    PANEL_BASE_URL: `https://${domains.prefix}-panel.${domains.baseDomain}`,
-    PANEL_API_BASE_URL: `https://${domains.prefix}-api.${domains.baseDomain}`,
-    CENTRAL_ATPROTO_LABELER__DOMAIN: `${domains.prefix}-labeler.${domains.baseDomain}`,
-  };
+  const domainEntries = JSON.parse(
+    readFileSync(DOMAINS_CONFIG_PATH, "utf8"),
+  ) as Record<string, DomainEntry>;
+
+  // we should map DomainConfig's `envVarsToUpdate` to the actual env vars
+  // that we need to update in the .env file
+  //
+  // for example, if the domain config has:
+  // {
+  //   subdomain: "site",
+  //   service: "http://localhost:38002",
+  //   envVarsToUpdate: ["BASE_URL"],
+  // }
+  //
+  // then we need to yield
+  // {
+  //   BASE_URL: `https://${domains.prefix}-site.${domains.baseDomain}`,
+  // }
+
+  const updates: Record<string, string> = {};
+  for (const domain of Object.values(domainEntries)) {
+    for (const envVar of domain.envVarsToUpdate) {
+      updates[envVar] = `https://${domains.prefix}-${domain.subdomain}.${domains.baseDomain}`;
+    }
+  }
 
   // Filter to only changed values
   const changedUpdates: Record<string, string> = {};

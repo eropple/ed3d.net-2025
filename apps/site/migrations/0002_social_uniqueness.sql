@@ -1,0 +1,2 @@
+ALTER TABLE "user_social_oauth2_identities" ADD CONSTRAINT "one_provider_row_per_user" UNIQUE("user_uuid","provider");--> statement-breakpoint
+ALTER TABLE "user_social_oauth2_identities" ADD CONSTRAINT "unique_provider_identity" UNIQUE("provider","provider_id");

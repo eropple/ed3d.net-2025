@@ -5,29 +5,29 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1744472928819,
+      "when": 1745631145584,
       "tag": "0000_initial",
       "breakpoints": true
     },
     {
       "idx": 1,
       "version": "7",
-      "when": 1744576381197,
-      "tag": "0001_users",
+      "when": 1746221078007,
+      "tag": "0001_magic_links_changes",
       "breakpoints": true
     },
     {
       "idx": 2,
       "version": "7",
-      "when": 1744855918589,
-      "tag": "0002_contentwip",
+      "when": 1746241595831,
+      "tag": "0002_social_uniqueness",
       "breakpoints": true
     },
     {
       "idx": 3,
       "version": "7",
-      "when": 1744856059191,
-      "tag": "0003_contentwip2",
+      "when": 1746245834984,
+      "tag": "0003_betterMagicLinks",
       "breakpoints": true
     }
   ]

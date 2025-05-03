@@ -1,3 +1,4 @@
+import type { NodeOAuthClient } from "@atproto/oauth-client-node";
 import { createClient, type SanityClient } from "@sanity/client";
 import {
   asFunction,
@@ -5,21 +6,35 @@ import {
   createContainer,
   type AwilixContainer,
 } from "awilix";
+import { makeSafeQueryRunner } from "groqd";
 import Redis from "ioredis";
 import type * as pg from "pg";
 import type { Logger } from "pino";
 import type { StaleWhileRevalidate } from "stale-while-revalidate-cache";
 import type { DeepReadonly } from "utility-types";
 
-import { buildRedisSWRCache } from "../../swr/redis.js";
+
+import { ATProtoService } from "../../auth/atproto/service.js";
+import { AuthService } from "../../auth/service.js";
+import { SessionService } from "../../auth/session/service.js";
+import { SocialIdentityService } from "../../auth/social-identity/service.js";
+import { BlogPostService } from "../../domain/blogs/service.js";
+import { UserService } from "../../domain/users/service.js";
+import { VaultKeyStore } from "../../vault/keystore.js";
+import { VaultService } from "../../vault/service.js";
+
+import type { AppRequestCradle } from "./request.js";
 
 import type { AppConfig } from "$lib/server/_config/types";
+import { createATProtoOAuthClient } from "$lib/server/auth/atproto/client-factory.js";
 import { buildDbPoolFromConfig, buildDrizzle } from "$lib/server/db/builders.js";
 import type { Drizzle, DrizzleRO } from "$lib/server/db/types";
-import { type AllSanitySchemaTypes, type internalGroqTypeReferenceTo } from "$lib/server/sanity/sanity-content-types.js";
+import { EmailService } from "$lib/server/email/service.js";
 import { buildMemorySwrCache } from "$lib/server/swr/memory";
+import { buildRedisSWRCache } from "$lib/server/swr/redis.js";
 import { buildTemporalConnection, TemporalClientService, type TemporalClient } from "$lib/server/temporal";
 import { loggedFetch, type FetchFn } from "$lib/server/utils/fetch";
+
 
 // eslint-disable-next-line no-restricted-globals
 const globalFetch = fetch;
@@ -47,6 +62,25 @@ export type AppSingletonCradle = {
   sanityDirect: SanityClient;
 
   // domain objects too expensive to build on request go here
+  vaultKeyStore: VaultKeyStore;
+  vault: VaultService;
+
+  atprotoOAuthClient: Promise<NodeOAuthClient>;
+
+  users: UserService;
+  blogPosts: BlogPostService;
+
+  // Sanity query runners
+  sanityQueryCdn: ReturnType<typeof makeSafeQueryRunner>;
+  sanityQueryDirect: ReturnType<typeof makeSafeQueryRunner>;
+
+  // Auth services
+  authService: AuthService;
+  atprotoService: ATProtoService;
+  socialIdentityService: SocialIdentityService;
+  sessionService: SessionService;
+
+  emailService: EmailService;
 };
 
 export async function configureBaseAwilixContainer(
@@ -127,8 +161,151 @@ export async function configureBaseAwilixContainer(
       });
     }).singleton(),
 
+    vaultKeyStore: asFunction(({ logger, config }: AppSingletonCradle) => {
+      return new VaultKeyStore(logger, {
+        primaryKey: config.vault.primaryKey,
+        legacyKeys: [...config.vault.legacyKeys || []],
+      });
+    }).singleton(),
+
     // domain objects too expensive to build on request go here
+    atprotoOAuthClient: asFunction(async ({ logger, db, vault, config, fetch }) => {
+      return createATProtoOAuthClient(
+        logger,
+        db,
+        vault,
+        fetch,
+        config.auth.atproto,
+        config.urls,
+      );
+    }).singleton(),
+
+    vault: asFunction(({ vaultKeyStore }: AppSingletonCradle) => {
+      return new VaultService(vaultKeyStore);
+    }).singleton(),
+
+    users: asFunction(({ logger, db, dbRO }: AppRequestCradle) => {
+      return new UserService(logger, db, dbRO);
+    }),
+
+    // Sanity query runners
+    sanityQueryCdn: asFunction(({
+      logger,
+      sanityCdn
+    }: AppRequestCradle) => {
+      return makeSafeQueryRunner((query, { parameters }) => {
+        logger.debug({
+          sanity: true,
+          cdn: true,
+          query,
+          parameters
+        }, "Executing Sanity CDN query");
+
+        return sanityCdn.fetch(query, parameters);
+      });
+    }),
+
+    sanityQueryDirect: asFunction(({
+      logger,
+      sanityDirect
+    }: AppRequestCradle) => {
+      return makeSafeQueryRunner((query, { parameters }) => {
+        logger.debug({
+          sanity: true,
+          direct: true,
+          query,
+          parameters
+        }, "Executing Sanity Direct query");
+
+        return sanityDirect.fetch(query, parameters);
+      });
+    }),
+
+    // Blog post service
+    blogPosts: asFunction(({
+      logger,
+      config,
+      sanityCdn,
+      sanityDirect,
+      sanityQueryCdn,
+      sanityQueryDirect
+    }: AppRequestCradle) => {
+      return new BlogPostService(
+        logger,
+        sanityCdn,
+        sanityDirect,
+        sanityQueryCdn,
+        sanityQueryDirect,
+        config.sanity.content
+      );
+    }),
+
+    // Social identity service
+    socialIdentityService: asFunction(({ logger, db, vault, users, fetch, config }: AppRequestCradle) => {
+      return new SocialIdentityService(
+        logger,
+        db,
+        vault,
+        users,
+        config.auth.socialIdentity,
+        fetch,
+        config.urls.frontendBaseUrl
+      );
+    }),
+
+    // ATProto service
+    atprotoService: asFunction(({
+      logger,
+      db,
+      dbRO,
+      vault,
+      users,
+      fetch,
+      atprotoOAuthClient
+    }: AppRequestCradle) => {
+      return new ATProtoService(logger, db, dbRO, vault, users, fetch, atprotoOAuthClient);
+    }),
+
+    // Main auth service
+    authService: asFunction(({
+      logger,
+      db,
+      users,
+      socialIdentityService,
+      atprotoService,
+      sessionService,
+      emailService,
+      config
+    }: AppRequestCradle) => {
+      return new AuthService(
+        logger,
+        db,
+        users,
+        socialIdentityService,
+        atprotoService,
+        sessionService,
+        emailService,
+        config.auth,
+        config.urls
+      );
+    }),
+
+    // Session service
+    sessionService: asFunction(({ logger, db, dbRO, config, users }: AppRequestCradle) => {
+      return new SessionService(logger, db, dbRO, config.auth, users);
+    }),
+
+    emailService: asFunction(({ logger, config }: AppSingletonCradle) => {
+      return new EmailService(
+        logger.child({ service: "email" }),
+        config.emailDelivery
+      );
+    }).singleton(),
   });
+
+  // we need to kick this forward to ensure the client is initialized
+  // and errors throw at app startup
+  await container.cradle.atprotoOAuthClient;
 
   return container;
 }

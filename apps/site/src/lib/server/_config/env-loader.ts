@@ -1,6 +1,11 @@
 import ms from "ms";
 import { getBool, getNum, getStr, requireStr } from "node-getenv";
 
+import { type ATProtoConfig } from "../auth/atproto/config.js";
+import { type AuthConfig } from "../auth/config.js";
+import { type PrivateJWKS } from "../auth/jwks.js";
+import { type SocialIdentityConfig } from "../auth/social-identity/config.js";
+import { type EmailDeliveryConfig } from "../email/config.js";
 import type { RedisConfig } from "../redis/config.js";
 import type { SanityConfig } from "../sanity/config.js";
 import type { VaultConfig } from "../vault/config.js";
@@ -11,6 +16,7 @@ import type { LogLevel } from "./types/log-level.js";
 import type { PostgresConfig, PostgresHostConfig } from "$lib/server/db/config";
 import type { MemorySWRConfig } from "$lib/server/swr/memory";
 import type { TemporalConfig, TemporalQueueConfig } from "$lib/server/temporal/config";
+
 
 function loadBaseConfig(): BaseConfig {
   return {
@@ -105,6 +111,65 @@ function loadVaultConfig(): VaultConfig {
   };
 }
 
+function loadSocialIdentityConfig(): SocialIdentityConfig {
+  return {
+    providers: {
+      github: {
+        clientId: requireStr("AUTH__SOCIAL_IDENTITY__PROVIDERS__GITHUB__CLIENT_ID"),
+        clientSecret: requireStr("AUTH__SOCIAL_IDENTITY__PROVIDERS__GITHUB__CLIENT_SECRET"),
+      },
+      google: {
+        clientId: requireStr("AUTH__SOCIAL_IDENTITY__PROVIDERS__GOOGLE__CLIENT_ID"),
+        clientSecret: requireStr("AUTH__SOCIAL_IDENTITY__PROVIDERS__GOOGLE__CLIENT_SECRET"),
+      },
+    },
+  };
+}
+
+function loadATProtoConfig(): ATProtoConfig {
+  const privateJwksJson = requireStr("AUTH__ATPROTO__PRIVATE_JWKS");
+  const privateJwks = JSON.parse(privateJwksJson) as PrivateJWKS;
+
+  return {
+    privateJwks,
+    handleResolver: getStr("AUTH__ATPROTO__HANDLE_RESOLVER", "https://bsky.social/"),
+  };
+}
+
+function loadAuthConfig(): AuthConfig {
+  return {
+    socialIdentity: loadSocialIdentityConfig(),
+    atproto: loadATProtoConfig(),
+    session: {
+      defaultDuration: getStr("AUTH__SESSION__DEFAULT_DURATION", "30d"),
+      cookieName: getStr("AUTH__SESSION__COOKIE_NAME", "ed3d_session"),
+      secureCookies: getBool("AUTH__SESSION__SECURE_COOKIES", process.env.NODE_ENV === "production"),
+      cookieDomain: getStr("AUTH__SESSION__COOKIE_DOMAIN", ""),
+    },
+    magicLink: {
+      expirationTime: getStr("AUTH__MAGIC_LINK__EXPIRATION_TIME", "15m"),
+    },
+  };
+}
+
+function loadEmailDeliveryConfig(): EmailDeliveryConfig {
+  return {
+    smtp: {
+      host: requireStr("EMAIL_DELIVERY__SMTP__HOST"),
+      port: getNum("EMAIL_DELIVERY__SMTP__PORT", 25),
+      tls: getBool("EMAIL_DELIVERY__SMTP__TLS", false),
+      auth: {
+        user: requireStr("EMAIL_DELIVERY__SMTP__AUTH__USER"),
+        pass: requireStr("EMAIL_DELIVERY__SMTP__AUTH__PASS"),
+      }
+    },
+    defaults: {
+      from: getStr("EMAIL_DELIVERY__DEFAULTS__FROM", "ed at ed3d <ed+automailer@ed3d.net>"),
+      replyTo: getStr("EMAIL_DELIVERY__DEFAULTS__REPLY_TO", "ed at ed3d <ed+automailer@ed3d.net>"),
+    }
+  };
+}
+
 export function loadAppConfigFromNodeEnv(): AppConfig {
   const config = {
     ...loadBaseConfig(),
@@ -115,6 +180,8 @@ export function loadAppConfigFromNodeEnv(): AppConfig {
     postgres: loadPostgresConfig(),
     temporal: loadTemporalConfig(),
     sanity: loadSanityConfig(),
+    auth: loadAuthConfig(),
+    emailDelivery: loadEmailDeliveryConfig(),
   };
 
   AppConfigChecker.Decode(config);
