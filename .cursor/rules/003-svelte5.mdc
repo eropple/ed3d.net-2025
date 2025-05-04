@@ -11,8 +11,9 @@ This project exclusively uses **Svelte 5 Runes mode**. Avoid using legacy Svelte
 
 1.  **State Management:** Use Runes like `$state` and `$derived` for component-level reactivity. For reactive page data (URL, params, data from `load`), use `$app/state`.
 2.  **Props:** Use `let { propName } = $props();` to receive props, including page data in `+page.svelte` (e.g., `let { data, form } = $props();`). Do **not** use `export let`.
-3.  **`$app/stores` is Deprecated:** Do **not** use `$app/stores` (e.g., importing `page` from there). Use `page` from `$app/state` instead. The `page` object from `$app/state` provides fine-grained reactivity automatically.
-4.  **Reactivity:** When using `page` from `$app/state`, access its properties directly (e.g., `page.url.pathname`, `page.data`). You do **not** need `$derived` to make these reactive.
+3.  **Layout Rendering:** In layout components (`+layout.svelte`), accept the child route content via `let { children } = $props();` and render it using the `{@render children()}` tag. Do **not** use the legacy `<slot />` element.
+4.  **`$app/stores` is Deprecated:** Do **not** use `$app/stores` (e.g., importing `page` from there). Use `page` from `$app/state` instead. The `page` object from `$app/state` provides fine-grained reactivity automatically.
+5.  **Reactivity:** When using `page` from `$app/state`, access its properties directly (e.g., `page.url.pathname`, `page.data`). You do **not** need `$derived` to make these reactive.
 
 ## Migration Example (`$app/stores` -> `$app/state`):
 
@@ -99,6 +100,34 @@ User: {user?.name}
 User: {user?.name}
 ```
 
+## Migration Example (`<slot />` -> `{@render children()}` in Layouts):
+
+**Legacy (Avoid):**
+
+```svelte
+<!-- +layout.svelte -->
+<script>
+	// No need to explicitly get children
+</script>
+<main>
+  <slot />
+</main>
+```
+
+**Runes Mode (Preferred):**
+
+```svelte
+<!-- +layout.svelte -->
+<script>
+	// Accept children via $props()
+	let { children } = $props();
+</script>
+<main>
+  <!-- Render the child route content -->
+  {@render children()}
+</main>
+```
+
 ## Reactivity with `$props()` vs `$app/state`
 
 -   **`$app/state`:** When using `page` imported from `$app/state`, its direct properties (`page.url`, `page.data`, etc.) are inherently reactive. You **do not** need `$derived` to access these reactively.
@@ -137,5 +166,6 @@ User: {user?.name}
 
 *   **SvelteKit Migration Guide ($app/stores Deprecation):** [$app/stores deprecated](mdc:https:/svelte.dev/docs/kit/migrating-to-sveltekit-2#SvelteKit-2.12:-$app-stores-deprecated)
 *   **Introduction to Runes:** [Introducing runes](mdc:https:/svelte.dev/blog/runes)
+*   **Svelte 5 Snippets:** [Snippets (`{@render ...}` tag)](mdc:https:/svelte.dev/docs/snippets)
 
 Always refer to these guidelines when working with Svelte components and state management in this project.

@@ -1,0 +1,142 @@
+---
+description: 
+globs: **/_worker/**/*,**/workflows/**/*,**/activities/**/*,**/activity.ts
+alwaysApply: false
+---
+# Temporal Workflow and Activity Concepts in ed3d.net
+
+This document outlines the core concepts of Temporal.io workflows and activities as implemented within the `ed3d.net` project structure.
+
+## Core Concepts
+
+Temporal allows defining reliable, long-running, and scalable background processes through Workflows and Activities.
+
+*   **Workflows:** Deterministic, stateful functions that orchestrate tasks. They maintain their state even across process restarts or failures.
+*   **Activities:** Regular functions where non-deterministic code (like I/O, external API calls, database interactions) resides. They execute potentially long-running tasks requested by workflows.
+*   **Workers:** Processes that host the implementation of Workflow and Activity functions. They listen to specific **Task Queues** and execute tasks assigned to them.
+*   **Task Queues:** Named queues used by the Temporal service to route Workflow Tasks and Activity Tasks to the appropriate Workers.
+*   **Schedules:** A mechanism to automatically start Workflow Executions at specified times or intervals. See [schedules.ts](mdc:apps/site/src/lib/server/_worker/schedules.ts).
+
+## Workflows
+
+Workflows orchestrate the overall process logic.
+
+### Determinism
+
+Workflow code **must be deterministic**. This means given the same input (event history), it must always produce the same output and execution path.
+*   **Forbidden:** Direct network calls, filesystem access, database calls, relying on system time (`Date.now()`, use `workflow.now()` instead), random number generation (`Math.random()`, use `workflow.random()` instead), standard `setTimeout` (use `workflow.sleep()`).
+*   **Allowed:** Calling Activities, starting Child Workflows, using Temporal APIs (`workflow.sleep`, `workflow.log`, `workflow.now`, etc.).
+
+### Calling Activities
+
+Workflows interact with the outside world via Activities.
+*   Activities are invoked using `workflow.proxyActivities<T>()`.
+*   Options like `startToCloseTimeout` and `retry` policies are configured when creating the proxy.
+
+```typescript
+// Example from [process-identity-batch.ts](mdc:apps/site/src/lib/server/auth/social-identity/_worker/workflows/process-identity-batch.ts)
+const { refreshSingleIdentityToken } = workflow.proxyActivities<{
+  refreshSingleIdentityToken: typeof refreshSingleIdentityTokenActivity.activity;
+}>({
+  startToCloseTimeout: "2 minutes",
+  retry: { /* ... retry options ... */ },
+});
+
+// Call the activity
+await refreshSingleIdentityToken({ identityUuid });
+```
+
+### Child Workflows
+
+Workflows can start other Workflows as children to encapsulate logic or perform parallel processing.
+*   Started using `workflow.startChild()`, which returns a `ChildWorkflowHandle`.
+*   Parent workflows can wait for child completion using `await handle.result()`.
+*   `parentClosePolicy` defines what happens to the child if the parent closes (default: `TERMINATE`).
+*   Child workflows run on the same task queue as the parent by default.
+
+```typescript
+// Example from [refresh-github-tokens.ts](mdc:apps/site/src/lib/server/auth/social-identity/_worker/workflows/refresh-github-tokens.ts)
+import { processIdentityBatchWorkflow } from "./process-identity-batch.js";
+
+// ... inside parent workflow ...
+const handle = await workflow.startChild(processIdentityBatchWorkflow, {
+  args: [{ identityUuids: batch }],
+  workflowId: childWorkflowId,
+  taskQueue: taskQueue,
+  parentClosePolicy: workflow.ParentClosePolicy.TERMINATE,
+  cancellationType: workflow.ChildWorkflowCancellationType.WAIT_CANCELLATION_COMPLETED,
+});
+childHandles.push(handle);
+
+// ... later ...
+await Promise.all(childHandles.map(h => h.result()));
+```
+
+### Schedules
+
+Workflows can be started automatically based on a schedule defined in [schedules.ts](mdc:apps/site/src/lib/server/_worker/schedules.ts).
+*   Each schedule specifies the `workflowType`, `taskQueue`, arguments, and interval/calendar spec.
+*   Workflows triggered by schedules cannot take arguments directly from the schedule definition itself.
+
+## Activities
+
+Activities perform the actual work involving side effects.
+
+*   Run in a standard Node.js environment, free from deterministic constraints.
+*   Can perform I/O, call databases, interact with external APIs, etc.
+*   Should generally be idempotent, as Temporal may retry them on failure.
+*   Dependency Injection: The `activityWrapper` in [activity-helpers.ts](mdc:apps/site/src/lib/server/_worker/activity-helpers.ts) and `configureActivityScope` in [activity.ts](mdc:apps/site/src/lib/server/_deps/scopes/activity.ts) provide injected dependencies (like `Logger`, `dbRO`, `socialIdentityService`) to the activity function via the `deps` argument.
+
+```typescript
+// Example from [get-batched-identities.ts](mdc:apps/site/src/lib/server/auth/social-identity/_worker/activities/get-batched-identities.ts)
+import { activity } from "../../../_worker/activity-helpers.js";
+
+export const getBatchedRefreshableIdentitiesActivity = activity(
+  "getBatchedRefreshableIdentities",
+  {
+    fn: async (
+      _context,
+      logger,
+      deps: AppActivityCradle, // Injected dependencies
+      { provider, batchSize }: GetBatchedIdentitiesArgs,
+    ): Promise<Array<Array<StringUUID>>> => {
+      const { dbRO } = deps; // Use injected dependency
+      // ... perform DB query ...
+      return batches;
+    },
+  },
+);
+```
+
+## Worker Registration
+
+*   A Worker process must register *all* Workflow and Activity types it might execute for its assigned Task Queue(s).
+*   This includes scheduled workflows, workflows called via the client, child workflows, and all activities invoked by those workflows.
+*   In this project, activities are collected in [index.ts](mdc:apps/site/src/lib/server/_worker/activities/index.ts) and workflows are collected and re-exported by queue (e.g., [index.ts](mdc:apps/site/src/lib/server/_worker/workflows/core/index.ts)). The worker setup code uses these barrels for registration.
+
+## Project Structure (`ed3d.net`)
+
+*   Temporal worker code (workflows, activities, helpers) related to a specific service (e.g., `auth/social-identity`) resides in a `_worker` subdirectory within that service's folder ([_worker/](mdc:apps/site/src/lib/server/auth/social-identity/_worker)).
+*   Barrel files ([activities/index.ts](mdc:apps/site/src/lib/server/auth/social-identity/_worker/activities/index.ts), [workflows/index.ts](mdc:apps/site/src/lib/server/auth/social-identity/_worker/workflows/index.ts)) are used within these `_worker` directories to export definitions.
+*   Central files ([_worker/](mdc:apps/site/src/lib/server/_worker)) aggregate definitions from different services for worker registration ([activities/index.ts](mdc:apps/site/src/lib/server/_worker/activities/index.ts), [workflows/core/index.ts](mdc:apps/site/src/lib/server/_worker/workflows/core/index.ts)) and scheduling ([schedules.ts](mdc:apps/site/src/lib/server/_worker/schedules.ts)).
+
+## Example Flow: Social Token Refresh
+
+1.  **Schedule:** A six-hourly schedule (e.g., `social-github-token-refresh` in [schedules.ts](mdc:apps/site/src/lib/server/_worker/schedules.ts)) triggers a main refresh workflow (e.g., `refreshGitHubTokensWorkflow`) on the `core` task queue.
+2.  **Main Workflow:** ([refresh-github-tokens.ts](mdc:apps/site/src/lib/server/auth/social-identity/_worker/workflows/refresh-github-tokens.ts))
+    *   Calls the `getBatchedRefreshableIdentitiesActivity` via proxy, passing the provider (`"github"`) and batch size.
+    *   Receives batches of identity UUIDs.
+    *   For each batch, uses `workflow.startChild()` to start an instance of the reusable `processIdentityBatchWorkflow`.
+    *   Collects the handles for all started child workflows.
+    *   Uses `Promise.all(handles.map(h => h.result()))` to wait for all children to complete.
+3.  **Child Workflow:** ([process-identity-batch.ts](mdc:apps/site/src/lib/server/auth/social-identity/_worker/workflows/process-identity-batch.ts))
+    *   Receives a batch of identity UUIDs.
+    *   Loops through the UUIDs.
+    *   For each UUID, calls the `refreshSingleIdentityTokenActivity` via proxy (configured with retries). The call is *not* awaited immediately inside the loop.
+    *   Errors during activity execution (after retries) are caught and logged within the child workflow.
+    *   Uses `Promise.allSettled()` on the activity promises to wait for all refreshes in the batch to complete or fail terminally.
+4.  **Activity:** ([refresh-single-identity.ts](mdc:apps/site/src/lib/server/auth/social-identity/_worker/activities/refresh-single-identity.ts))
+    *   Receives an `identityUuid`.
+    *   Uses the injected `socialIdentityService` dependency.
+    *   Calls `socialIdentityService.refreshAccessToken()`.
+    *   If the service throws an error, the activity fails, potentially triggering a retry by Temporal based on the proxy configuration.

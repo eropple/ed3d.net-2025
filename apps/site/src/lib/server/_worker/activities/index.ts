@@ -1,6 +1,7 @@
-
+import { allSocialIdentityActivities } from "../../auth/social-identity/activities/index.js";
 import { groupByTags } from "../../utils/data-structures.js";
 import { type ExportedActivity } from "../activity-helpers.js";
+// Import social identity activities
 
 import { doPingActivity } from "./ping.js";
 
@@ -10,6 +11,9 @@ import { doPingActivity } from "./ping.js";
 //        and not others in its queue. it also might not be worth it.
 export const ALL_ACTIVITIES: Array<ExportedActivity> = [
   doPingActivity,
+
+  // Add social identity activities
+  ...allSocialIdentityActivities,
 
   // core queue activities
 ];
