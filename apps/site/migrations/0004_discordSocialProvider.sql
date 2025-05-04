@@ -1,0 +1,1 @@
+ALTER TYPE "public"."social_oauth2_provider_kind" ADD VALUE 'discord';

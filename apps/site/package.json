@@ -47,6 +47,7 @@
 		"@atproto/jwk-jose": "^0.1.6",
 		"@atproto/oauth-client-node": "^0.2.16",
 		"@fontsource/inconsolata": "^5.2.5",
+		"@fontsource/libre-franklin": "^5.2.5",
 		"@fontsource/lora": "^5.2.5",
 		"@fontsource/noto-sans-display": "^5.2.6",
 		"@fortawesome/free-brands-svg-icons": "^6.7.2",

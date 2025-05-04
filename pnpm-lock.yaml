@@ -167,6 +167,9 @@ importers:
       '@fontsource/inconsolata':
         specifier: ^5.2.5
         version: 5.2.5
+      '@fontsource/libre-franklin':
+        specifier: ^5.2.5
+        version: 5.2.5
       '@fontsource/lora':
         specifier: ^5.2.5
         version: 5.2.5
@@ -1857,6 +1860,9 @@ packages:
 
   '@fontsource/inconsolata@5.2.5':
     resolution: {integrity: sha512-OvzkZY5qYghv/jEV6cfGZzFhdFTvSnU+ExPC7WcZ7w8PdRhtiu/SpcBWOBt+3LXgS0n9qyepgq4zZmxlDTlGGQ==}
+
+  '@fontsource/libre-franklin@5.2.5':
+    resolution: {integrity: sha512-ncqMzWiZM8TFABajSMg1k1q5/NeSeCVJJd7o3VDqqNN1q8sxkBW/aENo3n02fy2dYzItIJH88dHnL2j6JAhzyg==}
 
   '@fontsource/lora@5.2.5':
     resolution: {integrity: sha512-Jr+jXw+0USPcCBKFfEyPgwKV3dD6w066PIC+1VXgINwjkOEXVX6enqEjz7uGe2WoUjOG+VbIPp4SIlzpMlWzdw==}
@@ -9866,6 +9872,8 @@ snapshots:
   '@floating-ui/utils@0.2.9': {}
 
   '@fontsource/inconsolata@5.2.5': {}
+
+  '@fontsource/libre-franklin@5.2.5': {}
 
   '@fontsource/lora@5.2.5': {}
 

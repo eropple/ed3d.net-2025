@@ -118,7 +118,7 @@ export type DBMagicLink = typeof MAGIC_LINKS.$inferSelect;
 
 export const SOCIAL_OAUTH2_PROVIDER_KIND = pgEnum(
   "social_oauth2_provider_kind",
-  ["github", "google"],
+  ["github", "google", "discord"],
 );
 
 export const SocialOAuth2ProviderKind = Type.Union(

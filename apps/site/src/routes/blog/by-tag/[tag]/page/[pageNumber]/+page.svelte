@@ -5,7 +5,7 @@
 	import BlogBlurbList from '$lib/components/blog/BlogBlurbList.svelte';
 	import BlogCounts from "$lib/components/blog/BlogCounts.svelte";
 
-	export let data: PageData;
+	let { data }: { data: PageData } = $props();
 	const {
 		title, pageNumber, lastPage, blogPosts, blogCounts,
 		totalCount, description, tag, currentCountable

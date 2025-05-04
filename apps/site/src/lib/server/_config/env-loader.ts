@@ -122,7 +122,13 @@ function loadSocialIdentityConfig(): SocialIdentityConfig {
         clientId: requireStr("AUTH__SOCIAL_IDENTITY__PROVIDERS__GOOGLE__CLIENT_ID"),
         clientSecret: requireStr("AUTH__SOCIAL_IDENTITY__PROVIDERS__GOOGLE__CLIENT_SECRET"),
       },
+      discord: {
+        clientId: requireStr("AUTH__SOCIAL_IDENTITY__PROVIDERS__DISCORD__CLIENT_ID"),
+        clientSecret: requireStr("AUTH__SOCIAL_IDENTITY__PROVIDERS__DISCORD__CLIENT_SECRET"),
+      },
     },
+    discordServerId: getStr("AUTH__SOCIAL_IDENTITY__DISCORD_SERVER_ID", undefined),
+    discordInviteLink: getStr("AUTH__SOCIAL_IDENTITY__DISCORD_INVITE_LINK", undefined),
   };
 }
 

@@ -71,7 +71,7 @@ export class GitHubProvider extends OAuth2Provider {
     }
   }
 
-  getProfileUrl(username: string): string {
+  getProfileUrl(username: string): string | undefined {
     return `https://github.com/${username}`;
   }
 

@@ -1,6 +1,6 @@
 ---
 description: 
-globs: ./package.json,./apps/site/**/*
+globs: package.json,apps/site/**/*
 alwaysApply: false
 ---
 # Ed3d.net Application Architecture Reference
@@ -106,6 +106,11 @@ All SvelteKit routes, unless explicitly ordered otherwise, should have server-si
 
 ## Services
 Services own database resources. For example, `UserService` owns the `user` table.
+
+When adding methods to a service:
+- **Follow existing patterns**: Ensure new methods match the signatures (arguments, return types like `Promise<UserPrivate>`) and conventions of similar existing methods within that service.
+- **Use existing getters**: Leverage the service's own getter methods (e.g., `getById`, `getByUsername`) for fetching data needed within the new method, rather than duplicating select logic. This ensures consistency and reuse of helper functions (like DTO conversion).
+- **Handle errors consistently**: Throw standard `Error` objects with clear messages, mirroring the error handling in other methods.
 
 ## Service Object Types
 

@@ -82,10 +82,14 @@ export class AuthService {
         stateToken
       );
 
-      // Optionally mark email as verified if coming from trusted provider
-      if (provider === "google" && user.email && !user.emailVerified) {
-        await this.verifyUserEmail(user.userId);
-      }
+      // We no longer need to explicitly verify the email here based on provider.
+      // The verification status comes from the NormalizedUserInfo within handleCallback.
+      // The upsertSocialIdentity/createUser logic within handleCallback should use user.emailVerified.
+
+      // Remove or comment out provider-specific verification:
+      // if (provider === "google" && user.email && !user.emailVerified) {
+      //   await this.verifyUserEmail(user.userId);
+      // }
 
       return { user, state };
     } catch (err) {
@@ -96,11 +100,15 @@ export class AuthService {
 
   /**
    * Create user from social auth if they don't exist
+   * NOTE: This method seems somewhat redundant now that handleCallback in SocialIdentityService
+   * handles user creation/linking. It might need refactoring or removal depending on exact flow.
+   * For now, adjusting its verification logic.
    */
   async createOrUpdateUserFromSocial(
-    provider: SocialOAuth2ProviderKind,
+    provider: SocialOAuth2ProviderKind, // Keep provider for context if needed
     email: string,
-    displayName: string
+    displayName: string,
+    isEmailVerified: boolean // <-- Accept verification status from caller
   ): Promise<{ userId: UserId; isNewUser: boolean }> {
     const logger = this.logger.child({ fn: "createOrUpdateUserFromSocial", provider, email });
 
@@ -109,6 +117,11 @@ export class AuthService {
 
     if (existingUser) {
       logger.debug({ userId: existingUser.userId }, "User already exists");
+      // Potentially update email verification status if not already verified?
+      // if (!existingUser.emailVerified && isEmailVerified) {
+      //   await this.verifyUserEmail(existingUser.userId);
+      //   logger.info({ userId: existingUser.userId }, "Marked existing user email as verified based on social login");
+      // }
       return { userId: existingUser.userId, isNewUser: false };
     }
 
@@ -132,8 +145,8 @@ export class AuthService {
       .values({
         email,
         username,
-        // If coming from trusted provider like Google, mark as verified
-        emailVerifiedAt: provider === "google" ? new Date() : null,
+        // Use the passed-in verification status
+        emailVerifiedAt: isEmailVerified ? new Date() : null, // <-- Use isEmailVerified
       })
       .returning();
 
@@ -160,9 +173,8 @@ export class AuthService {
   /**
    * Get all social identities for a user
    */
-  async getUserSocialIdentities(userId: UserId) {
-    const userUuid = UserIds.toUUID(userId);
-    return this.socialIdentityService.getSocialIdentities(userUuid);
+  async getUserSocialIdentities(userOrUserId: UserPrivate | UserId) {
+    return this.socialIdentityService.getSocialIdentities(userOrUserId);
   }
 
   /**
@@ -268,7 +280,8 @@ export class AuthService {
   private getProviderDisplayName(provider: SocialOAuth2ProviderKind): string {
     const displayNames: Record<SocialOAuth2ProviderKind, string> = {
       github: "GitHub",
-      google: "Google"
+      google: "Google",
+      discord: "Discord", // <-- Add Discord
     };
 
     return displayNames[provider] || provider;

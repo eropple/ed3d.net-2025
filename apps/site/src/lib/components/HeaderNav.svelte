@@ -1,27 +1,24 @@
 <script lang="ts">
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { SITE_NAME } from '$lib/constants';
   import { onMount } from 'svelte';
   import { clsx } from 'clsx';
   import AuthModal from './AuthModal.svelte';
-  import { NavigationMenu } from 'bits-ui';
+  import { NavigationMenu, DropdownMenu } from 'bits-ui';
   import { fade } from 'svelte/transition';
 
   let isOpen = $state(false);
   let authModalOpen = $state(false);
 
-  let pathname = $derived($page.url.pathname);
-  let user = $derived($page.data.user);
-
   function isActive(href: string): boolean {
-    return pathname?.toLowerCase().startsWith(href.toLowerCase()) ?? false;
+    return page.url.pathname?.toLowerCase().startsWith(href.toLowerCase()) ?? false;
   }
 
   function openAuthModal() {
     authModalOpen = true;
   }
 
-  const itemClasses = "flex h-10 select-none items-center rounded-md px-3 py-2 text-sm font-medium data-[highlighted]:bg-gray-100 focus:outline-none text-gray-700";
+  const itemClasses = "flex h-10 select-none items-center rounded-md px-3 py-2 text-sm font-medium data-[highlighted]:bg-gray-100 focus:outline-none";
 </script>
 
 <nav class="relative z-10 bg-primary text-white shadow-xl">
@@ -60,36 +57,41 @@
               </NavigationMenu.Link>
             </NavigationMenu.Item>
 
-            <NavigationMenu.Item>
-              {#if user}
-                <NavigationMenu.Trigger
+            {#if page.data.user}
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger
                   class="inline-flex h-10 w-10 select-none items-center justify-center rounded-full bg-gray-200 text-sm font-medium hover:bg-gray-300 active:scale-[0.98] focus:outline-none data-[state=open]:ring-2 data-[state=open]:ring-secondary data-[state=open]:ring-offset-2 data-[state=open]:ring-offset-primary"
                 >
                   <span class="text-gray-500">
-                    {user.username.substring(0, 2).toUpperCase()}
+                    {page.data.user.username.substring(0, 2).toUpperCase()}
                   </span>
-                </NavigationMenu.Trigger>
-                  <NavigationMenu.Content
-                    forceMount={true}
-                    class="absolute mt-2 w-56 origin-top-right rounded-lg border border-gray-200 bg-white p-2 text-gray-900 shadow-lg focus:outline-none data-[state=closed]:hidden"
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content
+                    class="z-50 w-56 rounded-lg border border-gray-200 bg-white p-2 text-gray-900 shadow-lg focus:outline-none"
+                    sideOffset={8}
+                    align="end"
                   >
                     <div class="px-3 py-2">
-                      <p class="text-sm font-medium truncate">{user.username}</p>
-                      {#if user.email}
-                        <p class="text-sm text-gray-500 truncate">{user.email}</p>
+                      <p class="text-sm font-medium truncate">{page.data.user.username}</p>
+                      {#if page.data.user.email}
+                        <p class="text-sm text-gray-500 truncate">{page.data.user.email}</p>
                       {/if}
                     </div>
                     <div class="h-px my-1 bg-gray-200"></div>
-                      <a href="/profile" class={itemClasses}>
+                    <DropdownMenu.Item class={itemClasses} onSelect={() => window.location.href='/profile'}>
                         <i class="fa-regular fa-user mr-2 w-4 text-center"></i>
                         Profile
-                      </a>
-                      <a href="/auth/logout" class={itemClasses}>
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item class={itemClasses} onSelect={() => window.location.href='/auth/logout'}>
                         <i class="fa-solid fa-arrow-right-from-bracket mr-2 w-4 text-center"></i>
                         Sign out
-                      </a>
-                  </NavigationMenu.Content>
-              {:else}
+                     </DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+            {:else}
+              <NavigationMenu.Item>
                 <button
                   onclick={openAuthModal}
                   class={clsx([
@@ -107,8 +109,8 @@
                 >
                   Log In
                 </button>
-              {/if}
-            </NavigationMenu.Item>
+              </NavigationMenu.Item>
+            {/if}
           </NavigationMenu.List>
           <NavigationMenu.Viewport />
         </NavigationMenu.Root>
@@ -181,16 +183,16 @@
           Blog
         </a>
 
-        {#if user}
+        {#if page.data.user}
           <div class="border-t border-gray-700 pt-3 mt-2">
              <div class="flex items-center px-3 mb-3">
                 <div class="inline-flex h-10 w-10 shrink-0 select-none items-center justify-center rounded-full bg-gray-200 text-sm font-medium">
-                   <span class="text-gray-500">{user.username.substring(0, 2).toUpperCase()}</span>
+                   <span class="text-gray-500">{page.data.user.username.substring(0, 2).toUpperCase()}</span>
                 </div>
                 <div class="ml-3">
-                  <div class="text-base font-medium text-white">{user.username}</div>
-                  {#if user.email}
-                    <div class="text-sm font-medium text-gray-400">{user.email}</div>
+                  <div class="text-base font-medium text-white">{page.data.user.username}</div>
+                  {#if page.data.user.email}
+                    <div class="text-sm font-medium text-gray-400">{page.data.user.email}</div>
                   {/if}
                 </div>
               </div>
@@ -234,4 +236,4 @@
   {/if}
 </nav>
 
-<AuthModal bind:open={authModalOpen} redirectPath={pathname} />
+<AuthModal bind:open={authModalOpen} redirectPath={page.url.pathname} />

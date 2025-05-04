@@ -1,6 +1,6 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { TypeCompiler } from "@sinclair/typebox/compiler";
-import { eq } from "drizzle-orm";
+import { eq, and, ne } from "drizzle-orm";
 import gravatarUrl from "gravatar-url";
 import { type Logger } from "pino";
 
@@ -257,5 +257,76 @@ export class UserService {
     logger.info({ updatedUser }, "Updated user email");
 
     return this._dbUserToUserPrivate(updatedUser);
+  }
+
+  /**
+   * Update a user's username.
+   */
+  async updateUsername(
+    userOrUserId: UserPrivate | UserId,
+    newUsername: string,
+    executor: Drizzle = this.db
+  ): Promise<UserPrivate> {
+    const userId = typeof userOrUserId === "string" ? userOrUserId : userOrUserId.userId;
+    const userUuid = UserIds.toUUID(userId);
+    const logger = this.logger.child({ fn: "updateUsername", userId });
+
+    const trimmedUsername = newUsername.trim();
+
+    // 1. Validation (Simple: non-empty and length)
+    if (!trimmedUsername) {
+        logger.warn("Attempted to update username to an empty string.");
+        throw new Error("Username cannot be empty.");
+    }
+    // Example length check (adjust as needed, e.g., based on DB column limit)
+    if (trimmedUsername.length < 2 || trimmedUsername.length > 50) {
+        logger.warn({ usernameLength: trimmedUsername.length }, "Attempted to update username with invalid length.");
+        throw new Error("Username must be between 2 and 50 characters.");
+    }
+    // Add more specific format validation if required later
+
+    // 2. Check if Unchanged
+    // Fetch current user using getById which handles the UUID conversion and returns UserPrivate or null
+    const currentUser = await this.getById(userId, executor);
+    if (!currentUser) {
+        // This case should ideally not happen if userOrUserId is valid, but handle defensively
+        logger.error({ userUuid }, "User not found when attempting username update.");
+        throw new Error("User not found.");
+    }
+    if (currentUser.username === trimmedUsername) {
+        logger.debug({ username: trimmedUsername }, "Username is unchanged, no update needed.");
+        return currentUser; // Return the existing user object
+    }
+
+    logger.debug({ newUsername: trimmedUsername }, "Attempting to update username.");
+
+
+    // 3. Check Availability
+    const existingUserWithUsername = await this.getByUsername(trimmedUsername, executor);
+    if (existingUserWithUsername && existingUserWithUsername.userId !== userId) {
+      logger.info({ existingUserId: existingUserWithUsername.userId, requestedUsername: trimmedUsername }, "Username is already in use by another user.");
+      throw new Error("Username is already taken.");
+    }
+
+    // 4. Perform Update
+    const [updatedDbUser] = await executor
+      .update(USERS)
+      .set({
+        username: trimmedUsername,
+        updatedAt: new Date()
+      })
+      .where(eq(USERS.userUuid, userUuid))
+      .returning();
+
+    if (!updatedDbUser) {
+        // Should not happen if currentUser was found, but check again.
+      logger.error({ userUuid }, "Failed to update user username in database, user might have been deleted concurrently.");
+      throw new Error("Failed to update username.");
+    }
+
+    logger.info({ userId }, "Updated user username successfully.");
+
+    // 5. Return updated UserPrivate object
+    return this._dbUserToUserPrivate(updatedDbUser);
   }
 }

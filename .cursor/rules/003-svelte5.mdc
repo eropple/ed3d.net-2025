@@ -1,0 +1,141 @@
+---
+description: 
+globs: *.svelte
+alwaysApply: false
+---
+# Svelte 5 Runes Mode Guide
+
+This project exclusively uses **Svelte 5 Runes mode**. Avoid using legacy Svelte patterns unless absolutely necessary and clearly justified.
+
+## Key Principles:
+
+1.  **State Management:** Use Runes like `$state` and `$derived` for component-level reactivity. For reactive page data (URL, params, data from `load`), use `$app/state`.
+2.  **Props:** Use `let { propName } = $props();` to receive props, including page data in `+page.svelte` (e.g., `let { data, form } = $props();`). Do **not** use `export let`.
+3.  **`$app/stores` is Deprecated:** Do **not** use `$app/stores` (e.g., importing `page` from there). Use `page` from `$app/state` instead. The `page` object from `$app/state` provides fine-grained reactivity automatically.
+4.  **Reactivity:** When using `page` from `$app/state`, access its properties directly (e.g., `page.url.pathname`, `page.data`). You do **not** need `$derived` to make these reactive.
+
+## Migration Example (`$app/stores` -> `$app/state`):
+
+**Legacy (Avoid):**
+
+```svelte
+<script>
+  import { page } from '$app/stores';
+  let pathname = $derived($page.url.pathname);
+  let user = $derived($page.data.user);
+</script>
+
+Path: {pathname}
+User: {user?.name}
+```
+
+**Runes Mode (Preferred):**
+
+```svelte
+<script>
+  import { page } from '$app/state';
+  // No $derived needed, page object is reactive
+</script>
+
+Path: {page.url.pathname}
+User: {page.data.user?.name}
+```
+
+## Migration Example (`export let data` -> `$props()`):
+
+**Legacy (Avoid):**
+
+```svelte
+<!-- +page.svelte -->
+<script>
+  export let data;
+  const { user } = data;
+</script>
+
+User: {user?.name}
+```
+
+**Runes Mode (Preferred):**
+
+```svelte
+<!-- +page.svelte -->
+<script>
+  let { data } = $props();
+  const { user } = data;
+</script>
+
+User: {user?.name}
+```
+
+**Legacy (Avoid):**
+
+```svelte
+<!-- +page.svelte -->
+<script lang="ts">
+  import type { PageData } from './$types';
+
+  export let data: PageData;
+  const { user } = data;
+</script>
+
+User: {user?.name}
+```
+
+**Runes Mode (Preferred):**
+
+```svelte
+<!-- +page.svelte -->
+<script lang="ts">
+  import type { PageData } from './$types';
+
+  // Use $props() and type the destructured data prop
+  let { data }: { data: PageData } = $props();
+  // Or, if also using form actions:
+  // let { data, form }: { data: PageData, form: ActionData } = $props();
+
+  const { user } = data;
+</script>
+
+User: {user?.name}
+```
+
+## Reactivity with `$props()` vs `$app/state`
+
+-   **`$app/state`:** When using `page` imported from `$app/state`, its direct properties (`page.url`, `page.data`, etc.) are inherently reactive. You **do not** need `$derived` to access these reactively.
+
+    ```svelte
+    <script>
+      import { page } from '$app/state';
+      // Correct: Access directly
+    </script>
+    Path: {page.url.pathname}
+    User: {page.data.user?.name}
+    ```
+
+-   **`$props()`:** Props received via `$props()` are reactive sources. If you need to create *new* reactive variables based on these props (or computations involving them), you **should** use the `$derived` Rune.
+
+    ```svelte
+    <script lang="ts">
+      import type { PageData } from './$types';
+      let { data }: { data: PageData } = $props();
+
+      // Correct: Use $derived to create reactive variables from props
+      const user = $derived(data.user);
+      const connections = $derived(data.connections);
+      const username = $derived(user?.username);
+
+      // Avoid: Using legacy `$` syntax
+      // $: legacyUser = data.user;
+    </script>
+
+    User: {user?.name}
+    Username: {username}
+    Connections Count: {connections.social.length}
+    ```
+
+## Reference Documentation:
+
+*   **SvelteKit Migration Guide ($app/stores Deprecation):** [$app/stores deprecated](mdc:https:/svelte.dev/docs/kit/migrating-to-sveltekit-2#SvelteKit-2.12:-$app-stores-deprecated)
+*   **Introduction to Runes:** [Introducing runes](mdc:https:/svelte.dev/blog/runes)
+
+Always refer to these guidelines when working with Svelte components and state management in this project.

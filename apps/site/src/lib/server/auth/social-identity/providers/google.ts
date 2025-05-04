@@ -73,11 +73,12 @@ export class GoogleProvider extends OAuth2Provider {
 
       return {
         id: data.id,
-        username, // Use email as the provider username
+        username,
         displayName: data.name,
         email: data.email,
+        emailVerified: data.verified_email === true && !!data.email,
         avatarUrl: data.picture,
-        profileUrl: `https://myaccount.google.com/`, // Google doesn't have direct profile links
+        profileUrl: undefined,
       };
     } catch (error) {
       logger.error({ error }, "Error fetching Google user info");
@@ -89,9 +90,9 @@ export class GoogleProvider extends OAuth2Provider {
     }
   }
 
-  getProfileUrl(username: string): string {
+  getProfileUrl(username: string): string | undefined {
     // Google doesn't have an easy way to link to a user profile by username/email alone
-    return "https://myaccount.google.com/";
+    return undefined;
   }
 
   getRefreshTimeAgo(): Date {

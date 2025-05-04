@@ -3,7 +3,7 @@
 	import BlogPost from '$lib/components/blog/BlogPost.svelte';
 	import { SITE_NAME } from '$lib/constants';
 
-	export let data: PageData;
+	let { data }: { data: PageData } = $props();
 	const { blogPost } = data;
 </script>
 

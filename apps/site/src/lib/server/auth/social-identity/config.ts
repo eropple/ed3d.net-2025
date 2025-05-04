@@ -12,7 +12,10 @@ export const SocialIdentityConfig = Type.Object({
   providers: Type.Object({
     github: SocialIdentityProviderConfig,
     google: SocialIdentityProviderConfig,
+    discord: SocialIdentityProviderConfig,
   }),
+  discordServerId: Type.Optional(Type.String({ minLength: 1 })),
+  discordInviteLink: Type.Optional(Type.String()),
 });
 
 export type SocialIdentityConfig = Static<typeof SocialIdentityConfig>;

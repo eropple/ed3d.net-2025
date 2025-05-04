@@ -5,6 +5,7 @@
 @import "@fontsource/inconsolata/index.css";
 @import "@fontsource/lora/index.css";
 @import "@fontsource/noto-sans-display/index.css";
+@import "@fontsource/libre-franklin/index.css";
 
 @theme {
   --color-*: initial;
@@ -20,6 +21,7 @@
   --font-sans: "Noto Sans Display", sans-serif;
   --font-serif: "Lora", serif;
   --font-mono: "Inconsolata", monospace;
+  --font-title: "Libre Franklin", sans-serif;
 
   --list-style-type-*: initial;
   --list-style-type-none: none;

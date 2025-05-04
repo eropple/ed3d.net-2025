@@ -2,8 +2,9 @@
 	import { SITE_NAME } from '$lib/constants';
 	import BlogBlurbList from '$lib/components/blog/BlogBlurbList.svelte';
 	import BlogCounts from '$lib/components/blog/BlogCounts.svelte';
+	import type { PageData } from './$types';
 
-	export let data;
+	let { data }: { data: PageData } = $props();
 	const { blogPosts, blogCounts } = data;
 </script>
 

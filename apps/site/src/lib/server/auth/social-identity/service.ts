@@ -11,16 +11,18 @@ import { StringUUID } from "../../../ext/typebox/index.js";
 import {
   SOCIAL_OAUTH2_PROVIDER_KIND,
   USER_SOCIAL_OAUTH2_IDENTITIES,
-  USERS,
+  type DBUserSocialOAuth2Identity,
   type SocialOAuth2ProviderKind
 } from "../../db/schema/index.js";
 import type { Drizzle } from "../../db/types.js";
 import type { UserService } from "../../domain/users/service.js";
 import type { FetchFn } from "../../utils/fetch.js";
 import type { VaultService } from "../../vault/service.js";
+import type { Sensitive } from "../../vault/types.js";
 
 import type { SocialIdentityConfig } from "./config.js";
 import type { NormalizedUserInfo, OAuth2Provider } from "./providers/base.js";
+import { DiscordProvider } from "./providers/discord.js";
 import { GitHubProvider } from "./providers/github.js";
 import { GoogleProvider } from "./providers/google.js";
 
@@ -65,6 +67,7 @@ export class SocialIdentityService {
     this.providers = {
       github: new GitHubProvider(this.logger, this.fetch),
       google: new GoogleProvider(this.logger, this.fetch),
+      discord: new DiscordProvider(this.logger, this.fetch),
     };
   }
 
@@ -169,26 +172,23 @@ private async verifyStateToken(stateToken: string): Promise<AuthorizationData> {
 
   /**
    * Handle OAuth2 callback and create/update user identity
-   * Returns the user and the verified state data.
+   * Returns the user, the verified state data, and whether email verification is needed.
    */
   async handleCallback(
     provider: SocialOAuth2ProviderKind,
     code: string,
     stateToken: string
-  ): Promise<{ user: UserPrivate; state: AuthorizationData }> {
+  ): Promise<{ user: UserPrivate; state: AuthorizationData; needsVerification: boolean }> {
     const logger = this.logger.child({ fn: "handleCallback", provider });
     logger.debug("Processing OAuth callback");
 
-    // Verify the state token (this now returns the decrypted data)
+    // Verify the state token
     const stateData = await this.verifyStateToken(stateToken);
 
     // Ensure the provider in the state matches the callback provider
     if (stateData.provider !== provider) {
       logger.error(
-        {
-          stateProvider: stateData.provider,
-          callbackProvider: provider
-        },
+        { stateProvider: stateData.provider, callbackProvider: provider },
         "Provider mismatch in OAuth callback"
       );
       throw new Error("Invalid authorization state: provider mismatch");
@@ -218,27 +218,29 @@ private async verifyStateToken(stateToken: string): Promise<AuthorizationData> {
       const userInfo = await providerInstance.getUserInfo(tokenResponse.access_token);
 
       // Use a transaction for the database operations
-      const finalUser = await this.db.transaction(async (tx) => {
+      // Now returns { finalUser, needsVerification }
+      const { finalUser, needsVerification } = await this.db.transaction(async (tx) => {
         let userUuid: StringUUID;
         let userId: UserId;
+        let isNewUser = false;
+        let wasAlreadyVerified = false; // Track initial verification state
 
         if (stateData.userUuid) {
           // --- Linking Flow ---
           userUuid = stateData.userUuid;
           logger.debug({ userUuid }, "Linking identity to existing user");
 
-          // Verify the user exists
           const user = await this.userService.getByUserUUID(userUuid, tx);
           if (!user) {
             logger.error({ userUuid }, "User not found during social identity linking.");
             throw new Error("User not found");
           }
           userId = user.userId;
+          wasAlreadyVerified = !!user.emailVerified; // Check if user was already verified
         } else {
           // --- Login/Signup Flow ---
           logger.debug({ providerId: userInfo.id, provider }, "Processing login/signup via social identity");
 
-          // 1. Check if this specific social identity already exists
           const [existingIdentity] = await tx
             .select()
             .from(USER_SOCIAL_OAUTH2_IDENTITIES)
@@ -251,21 +253,17 @@ private async verifyStateToken(stateToken: string): Promise<AuthorizationData> {
             .limit(1);
 
           if (existingIdentity) {
-            // Identity found! Use the associated user UUID for login.
             userUuid = existingIdentity.userUuid;
             logger.debug({ userUuid, provider, providerId: userInfo.id }, "Found existing user via social identity");
 
-            // Need to get the corresponding rich UserId for session creation etc.
             const existingUser = await this.userService.getByUserUUID(userUuid, tx);
             if (!existingUser) {
-              // This indicates data inconsistency - identity exists but user doesn't
               logger.error({ userUuid }, "User account not found for existing social identity!");
               throw new Error("Associated user account not found.");
             }
             userId = existingUser.userId;
-
+            wasAlreadyVerified = !!existingUser.emailVerified; // Check if user was already verified
           } else {
-            // Identity NOT found, proceed with original email lookup / creation logic
             logger.debug("Social identity not found, checking by email or creating new user.");
             let user = null;
             if (userInfo.email) {
@@ -273,31 +271,31 @@ private async verifyStateToken(stateToken: string): Promise<AuthorizationData> {
             }
 
             if (user) {
-              // User exists by email, link this new identity to them
               userUuid = UserIds.toUUID(user.userId);
               userId = user.userId;
-              logger.debug({ userUuid, email: userInfo.email }, "Found existing user by email, linking new social identity");
+              wasAlreadyVerified = !!user.emailVerified; // Check if user was already verified
+              logger.debug({ userUuid, email: userInfo.email, wasAlreadyVerified }, "Found existing user by email, linking new social identity");
             } else {
-              // No existing identity, no existing user by email -> Create new user
-              // Generate a username from display name or username
               const baseUsername = userInfo.displayName || userInfo.username || "user";
               const username = await this.userService.generateUniqueUsername(baseUsername, tx);
 
-              // Create new user
+              // Create new user, noting email verification status from provider
               const newUser = await this.userService.createUser({
-                email: userInfo.email || `${userInfo.id}@${provider}.placeholder.com`, // Use placeholder if email is missing
+                email: userInfo.email || `${userInfo.id}@${provider}.placeholder.com`,
                 username,
-                emailVerified: provider === "google" && !!userInfo.email // Assume Google email is verified
+                emailVerified: userInfo.emailVerified === true // Use provider status here
               }, tx);
 
               userId = newUser.userId;
               userUuid = UserIds.toUUID(userId);
-              logger.info({ userUuid }, "Created new user from social login");
+              isNewUser = true;
+              wasAlreadyVerified = userInfo.emailVerified === true; // Initial state for new user
+              logger.info({ userUuid, emailVerified: wasAlreadyVerified }, "Created new user from social login");
             }
           }
         } // End Login/Signup Flow
 
-        // Create or update the social identity (link it to the identified userUuid)
+        // Upsert the social identity
         await this.upsertSocialIdentity(
           userUuid,
           provider,
@@ -306,21 +304,26 @@ private async verifyStateToken(stateToken: string): Promise<AuthorizationData> {
           tx
         );
 
-        // Get the final user details to return (using the identified userId)
+        // Get the final user details
         const retrievedUser = await this.userService.getById(userId, tx);
         if (!retrievedUser) {
-          // This implies an issue either finding or creating the user above
           logger.error({ userId, userUuid }, "Failed to retrieve final user details after social callback.");
           throw new Error("Could not retrieve user information.");
         }
 
-        logger.info({ userId: retrievedUser.userId, provider }, "Social callback processed successfully.");
-        return retrievedUser;
+        // Determine if verification email is needed
+        // Needed if:
+        // 1. User was NOT already verified (either new or existing unverified)
+        // 2. AND the provider did NOT verify the email during this login
+        const shouldSendVerification = !wasAlreadyVerified && userInfo.emailVerified !== true;
+
+        logger.info({ userId: retrievedUser.userId, provider, needsVerification: shouldSendVerification }, "Social callback processed successfully in transaction.");
+        return { finalUser: retrievedUser, needsVerification: shouldSendVerification }; // Return flag
       }); // End transaction
 
-      // Now return both the user and the state data
-      logger.info({ userId: finalUser.userId, provider }, "Social callback processed successfully by service.");
-      return { user: finalUser, state: stateData };
+      // Return user, state, and verification flag
+      logger.info({ userId: finalUser.userId, provider, needsVerification }, "Social callback processed successfully by service.");
+      return { user: finalUser, state: stateData, needsVerification }; // Return flag here
     } catch (err) {
       logger.error({ err }, "Error handling OAuth callback in service");
       throw err;
@@ -414,14 +417,19 @@ private async verifyStateToken(stateToken: string): Promise<AuthorizationData> {
       ? new Date(Date.now() + tokenData.expires_in * 1000)
       : undefined;
 
-    // Create provider-specific metadata
+    // Create provider-specific metadata object
+    // For now, we won't store Discord-specific metadata beyond what's in NormalizedUserInfo
+    // We would need to update OAuth2ProviderMetadata in base.ts if we added specific fields
     const providerMetadata = {
       kind: provider,
       metadata: {
+        // Common fields derived from NormalizedUserInfo
         displayName: userInfo.displayName,
         avatarUrl: userInfo.avatarUrl,
         profileUrl: userInfo.profileUrl,
       }
+      // Example: If we defined DiscordMetadata in base.ts:
+      // ...(provider === "discord" ? { /* discord-specific fields */ } : {})
     };
 
     // Encrypt sensitive token data
@@ -431,7 +439,8 @@ private async verifyStateToken(stateToken: string): Promise<AuthorizationData> {
       refreshToken = await this.vault.encrypt(tokenData.refresh_token);
     }
 
-    const encryptedMetadata = await this.vault.encrypt(JSON.stringify(providerMetadata));
+    // Encrypt the combined metadata
+    const encryptedMetadata = await this.vault.encrypt(JSON.stringify(providerMetadata)); // Storing the generic structure
 
     // Check if identity already exists FOR THIS USER
     // Note: The unique constraint (provider, providerId) prevents linking the *same*
@@ -506,7 +515,8 @@ private async verifyStateToken(stateToken: string): Promise<AuthorizationData> {
   /**
    * Get all social identities for a user
    */
-  async getSocialIdentities(userUuid: StringUUID): Promise<typeof USER_SOCIAL_OAUTH2_IDENTITIES.$inferSelect[]> {
+  async getSocialIdentities(userOrUserId: UserPrivate | UserId): Promise<DBUserSocialOAuth2Identity[]> {
+    const userUuid = UserIds.toUUID(typeof userOrUserId === "string" ? userOrUserId : userOrUserId.userId);
     const logger = this.logger.child({ fn: "getSocialIdentities", userUuid });
 
     const identities = await this.db.select().from(USER_SOCIAL_OAUTH2_IDENTITIES).where(eq(USER_SOCIAL_OAUTH2_IDENTITIES.userUuid, userUuid));
@@ -534,6 +544,61 @@ private async verifyStateToken(stateToken: string): Promise<AuthorizationData> {
       );
 
     logger.info("Social identity deleted"); // Changed to info for clarity
+  }
+
+  /**
+   * Check if the Discord server ID is configured.
+   */
+  isDiscordGuildConfigured(): boolean {
+    return !!this.config.discordServerId; // True if the ID is set and not empty
+  }
+
+  /**
+   * Check if a user is a member of the configured Discord guild using their OAuth token.
+   * Requires the 'guilds.members.read' scope.
+   * @param encryptedAccessToken The encrypted access token retrieved from the database.
+   */
+  async checkDiscordGuildMembership(encryptedAccessToken: Sensitive<string>): Promise<boolean> {
+    const logger = this.logger.child({ fn: "checkDiscordGuildMembership" });
+
+    if (!this.isDiscordGuildConfigured()) {
+      logger.warn("Attempted to check Discord guild membership but no server ID is configured.");
+      return false; // Cannot check if not configured
+    }
+
+    const serverId = this.config.discordServerId!; // We know it's defined due to the check above
+
+    try {
+      // Decrypt using the Sensitive<string> type directly
+      const accessToken = await this.vault.decrypt<string>(encryptedAccessToken);
+      const url = `https://discord.com/api/users/@me/guilds/${serverId}/member`;
+
+      logger.debug({ url }, "Checking Discord guild membership");
+
+      const response = await this.fetch(url, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (response.ok) { // Status 200-299
+        logger.debug("User is a member of the configured Discord guild.");
+        return true;
+      }
+
+      if (response.status === 404) {
+        logger.debug("User is not a member of the configured Discord guild.");
+        return false;
+      }
+
+      // Handle other potential errors (401, 403, rate limits, etc.)
+      logger.warn({ status: response.status, body: await response.text() }, "Received non-OK, non-404 status checking Discord guild membership.");
+      return false; // Treat other errors as "not a member" or "check failed"
+
+    } catch (error) {
+      logger.error({ err: error, serverId }, "Error checking Discord guild membership");
+      return false; // Treat fetch errors as "check failed"
+    }
   }
 
   /**

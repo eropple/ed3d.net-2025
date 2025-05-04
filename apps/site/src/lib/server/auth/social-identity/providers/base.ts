@@ -21,8 +21,9 @@ export interface NormalizedUserInfo {
   username: string;
   displayName?: string;
   email?: string;
+  emailVerified?: boolean;
   avatarUrl?: string;
-  profileUrl: string;
+  profileUrl?: string;
 }
 
 export abstract class OAuth2Provider {
@@ -39,7 +40,7 @@ export abstract class OAuth2Provider {
     accessToken: string,
   ): Promise<NormalizedUserInfo>;
 
-  abstract getProfileUrl(username: string): string;
+  abstract getProfileUrl(username: string): string | undefined;
 
   abstract getRefreshTimeAgo(): Date;
 }
