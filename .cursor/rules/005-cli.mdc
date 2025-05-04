@@ -1,0 +1,96 @@
+---
+description: 
+globs: **/_cli/**/*
+alwaysApply: false
+---
+# CLI Command Structure and Implementation
+
+This document outlines how Command Line Interface (CLI) commands are structured and implemented within the `ed3d.net` project.
+
+## Framework
+
+We use the `cmd-ts` library to define and manage CLI commands and subcommands. It provides a type-safe way to handle arguments, options, and command execution.
+
+## Directory Structure
+
+CLI commands are organized into categories within the [apps/site/src/lib/server/_cli/](mdc:apps/site/src/lib/server/_cli/) directory.
+
+*   **Root:** [index.ts](mdc:apps/site/src/lib/server/_cli/index.ts) defines the main `app-cli` and aggregates all command categories.
+*   **Category Index:** Each subdirectory (e.g., `db`, `utils`, `social`, `worker`) has an `index.ts` file that uses `subcommands` from `cmd-ts` to group related commands into a named category.
+    *   Example: [social/index.ts](mdc:apps/site/src/lib/server/_cli/social/index.ts) groups all social-related commands under the `social` subcommand.
+*   **Command File:** Individual command logic resides in its own file within the appropriate category directory.
+    *   Example: [social/refresh-github-tokens.ts](mdc:apps/site/src/lib/server/_cli/social/refresh-github-tokens.ts) defines the `refresh-github-tokens` command.
+
+## Command Definition
+
+Each command file typically exports a command definition created using `command` from `cmd-ts`.
+
+*   **`name`:** The name used to invoke the command (e.g., `refresh-github-tokens`).
+*   **`args`:** Defines positional arguments and options using helpers like `positional`, `option`, `flag`, etc.
+*   **`handler`:** An async function containing the command's logic.
+
+```typescript
+// Example from [utils/send-test-email.ts](mdc:apps/site/src/lib/server/_cli/utils/send-test-email.ts)
+import { command, positional, string, option, optional } from "cmd-ts";
+// ... other imports
+
+export const sendTestEmailCommand = command({
+  name: "send-test-email",
+  args: {
+    email: positional({ type: string, /* ... */ }),
+    subject: option({ type: string, /* ... */ }),
+    // ... other args
+  },
+  handler: async ({ email, subject, message, from, replyTo }) => {
+    // ... command logic ...
+  },
+});
+```
+
+## Dependency Injection and Services
+
+CLI commands often need access to application services (database, Temporal client, email service, etc.). This is achieved through bootstrapping the Node.js environment.
+
+1.  **Bootstrap:** The `handler` function first calls `bootstrapNode` from [bootstrap/node.js](mdc:apps/site/src/lib/server/bootstrap/node.js). This function initializes the configuration, logger, and the singleton Dependency Injection (DI) container.
+2.  **Accessing Container:** `bootstrapNode` returns an object containing `ROOT_LOGGER` and `SINGLETON_CONTAINER`.
+3.  **Using Services:** Services registered in the singleton scope (see [singleton.ts](mdc:apps/site/src/lib/server/_deps/scopes/singleton.ts)) can be accessed via `SINGLETON_CONTAINER.cradle`.
+4.  **Disposal:** It's crucial to call `SINGLETON_CONTAINER.dispose()` in a `finally` block to clean up resources like database connections.
+5.  **Exit:** Use `process.exit(0)` for success and `process.exit(1)` for failure.
+
+```typescript
+// Example from [social/refresh-github-tokens.ts](mdc:apps/site/src/lib/server/_cli/social/refresh-github-tokens.ts)
+import { command } from "cmd-ts";
+import * as coreWorkflows from "../../_worker/workflows/core/index.js"; // Accessing workflows
+import { bootstrapNode } from "../../bootstrap/node.js"; // Bootstrapping
+
+export const refreshGitHubTokensCommand = command({
+  name: "refresh-github-tokens",
+  args: {},
+  handler: async () => {
+    // 1. Bootstrap
+    const { ROOT_LOGGER, SINGLETON_CONTAINER } = await bootstrapNode(
+      "cli-refresh-github-tokens",
+      { skipMigrations: true },
+    );
+
+    const logger = ROOT_LOGGER;
+    // 3. Access Temporal service from cradle
+    const temporal = SINGLETON_CONTAINER.cradle.temporal;
+
+    try {
+      // Use the service
+      const handle = await temporal.start("core", coreWorkflows.refreshGitHubTokensWorkflow, []);
+      logger.info({ workflowId: handle.workflowId }, "Successfully started workflow");
+    } catch (err) {
+      logger.error({ err }, "Failed to trigger workflow");
+      process.exit(1); // 5. Exit on failure
+    } finally {
+      // 4. Dispose container
+      await SINGLETON_CONTAINER.dispose();
+    }
+    process.exit(0); // 5. Exit on success
+  },
+});
+```
+
+This pattern ensures that CLI commands have a consistent way to initialize the application environment and interact with its core services.

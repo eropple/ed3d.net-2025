@@ -45,6 +45,11 @@ export const getBatchedRefreshableIdentitiesActivity = activity(
         );
 
       const identityUuids = identities.map(i => i.uuid);
+      if (identityUuids.length === 0) {
+        logger.info({ provider }, "No identities found needing refresh");
+        return [];
+      }
+
       logger.info({ provider, count: identityUuids.length }, "Found identities needing refresh");
 
       // Partition into batches
