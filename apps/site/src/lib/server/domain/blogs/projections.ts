@@ -1,6 +1,7 @@
 import { type InferFragmentType } from "groqd";
 
 import { q } from "../../sanity/query-builder.js";
+import type { LongFormBlockContent } from "../../sanity/sanity-content-types.js";
 
 // Author projection
 export const authorProjection = q
@@ -36,6 +37,87 @@ export const tagShortProjection = q
     slug: sub.field("slug").field("current", q.string()),
   }));
 
+export const imageWithAltProjection = q
+  .fragmentForType<"imageWithAlt">()
+  .project((sub) => ({
+    _type: sub.field("_type"),
+    altText: sub.field("altText"),
+    caption: sub.field("caption"),
+    attribution: sub.field("attribution"),
+    image: sub
+      .field("image")
+      .field("asset")
+      .deref()
+      .project((imgSub) => ({
+        url: imgSub.field("url"),
+        extension: imgSub.field("extension"),
+        lqip: imgSub.field("metadata.lqip"),
+      })),
+  }));
+
+export const codeBlockProjection = q
+  .fragmentForType<"codeBlock">()
+  .project((sub) => ({
+    _type: sub.field("_type"),
+    code: sub.field("code").project(sub2 => ({
+      language: sub2.field("language"),
+      filename: sub2.field("filename"),
+      code: sub2.field("code"),
+      highlightedLines: sub2.field("highlightedLines[]"),
+    })),
+  }));
+
+  // LongFormBlockContent projection
+export const longFormBlockContentProjection = q
+  .fragment<LongFormBlockContent[number]>() // Using indexed type to get element type
+  .project((bodySub) => ({
+    _key: bodySub.field("_key"),
+    _type: bodySub.field("_type"),
+
+    ...bodySub.conditionalByType({
+      imageWithAlt: imageWithAltProjection,
+
+      // Handle code blocks
+      codeBlock: codeBlockProjection,
+
+      // Handle block text content
+      block: {
+        children: true,
+        style: true,
+        listItem: true,
+        markDefs: true,
+        level: true,
+      },
+
+      // Handle youtubeEmbed blocks
+      youtubeEmbed: {
+        title: true,
+        youtubeId: true,
+      },
+
+      // Handle divider blocks
+      divider: {
+        title: true,
+      },
+
+      // Handle blockQuote blocks
+      blockQuote: {
+        body: true,
+        speaker: true,
+        work: true,
+        citeHref: true,
+      },
+
+      // Handle epigraph blocks
+      epigraph: {
+        body: true,
+        speaker: true,
+        work: true,
+        citeHref: true,
+      },
+    }),
+  }));
+
 // Blog projection (short version for listings)
 export const blogShortProjection = q
   .fragmentForType<"blogPost">()
@@ -58,12 +140,15 @@ export const blogProjection = q
     title: sub.field("title"),
     blurb: sub.field("blurb"),
     date: sub.field("date"),
-    body: sub.field("body[]"),
+
+    // Process each body array item with conditional handling
+    body: sub.field("body[]").project(longFormBlockContentProjection),
 
     author: sub.field("author").deref().project(authorProjection),
     category: sub.field("category").deref().project(categoryShortProjection),
     tags: sub.field("tags[]").deref().project(tagShortProjection),
   }));
+
 
 // Export types for the projections
 export type BlogContent = InferFragmentType<typeof blogProjection>;

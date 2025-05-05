@@ -8,6 +8,10 @@ export const ImageWithAlt = defineType({
     defineField({
       name: 'image',
       type: 'image',
+      options: {
+        hotspot: true,
+        storeOriginalFilename: true,
+      },
       // @ts-ignore
       codegen: { required: true },
       validation: Rule => Rule.required(),
@@ -21,6 +25,10 @@ export const ImageWithAlt = defineType({
     }),
     defineField({
       name: 'caption',
+      type: 'string',
+    }),
+    defineField({
+      name: 'attribution',
       type: 'string',
     }),
   ],

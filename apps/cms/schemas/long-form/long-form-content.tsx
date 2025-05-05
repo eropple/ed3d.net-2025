@@ -77,9 +77,9 @@ export const LongFormBlockContent = defineType({
       name: 'divider',
       type: 'divider',
     },
-    // {
-    //   type: 'codeBlock',
-    // },
+    {
+      type: 'codeBlock',
+    },
     {
       name: 'youtubeEmbed',
       type: 'youtubeEmbed',

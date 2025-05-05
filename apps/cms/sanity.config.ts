@@ -7,6 +7,7 @@ import { colorInput } from "@sanity/color-input";
 import {schemaTypes} from './schemas'
 import { requireStr } from 'node-getenv';
 import { groqdPlaygroundTool } from 'groqd-playground';
+import { codeInput } from "@sanity/code-input";
 
 const config = defineConfig({
   name: 'default',
@@ -22,6 +23,8 @@ const config = defineConfig({
     groqdPlaygroundTool({
 
     }),
+
+    codeInput()
   ],
 
   schema: {

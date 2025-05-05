@@ -24,6 +24,8 @@
     },
     unknownBlockStyle: UnknownBlockStyle,
   };
+
+  console.log(JSON.stringify(content.filter(block => block._type === 'imageWithAlt'), null, 2));
 </script>
 
 <main class="long-form-content">
