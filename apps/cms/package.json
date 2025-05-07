@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@sanity/code-input": "^5.1.2",
     "@sanity/color-input": "^4.0.3",
     "@sanity/vision": "^3.85.1",
     "date-fns": "^4.1.0",

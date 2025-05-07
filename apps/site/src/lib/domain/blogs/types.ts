@@ -53,16 +53,79 @@ export const BlockType = Type.Object({
   style: Type.Optional(Type.String()),
 });
 
-export const BlogContentType = Type.Array(
+// Image with alt
+export const ImageWithAltType = Type.Object({
+  _type: Type.Literal("imageWithAlt"),
+  _key: Type.String(),
+  altText: Type.String(),
+  caption: Type.Optional(Type.String()),
+  attribution: Type.Optional(Type.String()),
+  image: Type.Object({
+    url: Type.String(),
+    extension: Type.Optional(Type.String()),
+    lqip: Type.Optional(Type.String()),
+  }),
+});
+
+// Code block
+export const CodeBlockType = Type.Object({
+  _type: Type.Literal("codeBlock"),
+  _key: Type.String(),
+  code: Type.Object({
+    language: Type.Optional(Type.String()),
+    filename: Type.Optional(Type.String()),
+    code: Type.Optional(Type.String()),
+    highlightedLines: Type.Optional(Type.Array(Type.Number())),
+  }),
+});
+
+// YouTube embed
+export const YouTubeEmbedType = Type.Object({
+  _type: Type.Literal("youtubeEmbed"),
+  _key: Type.String(),
+  title: Type.Optional(Type.String()),
+  youtubeId: Type.String(),
+});
+
+// Divider
+export const DividerType = Type.Object({
+  _type: Type.Literal("divider"),
+  _key: Type.String(),
+  title: Type.Optional(Type.String()),
+});
+
+// BlockQuote and Epigraph share similar structure
+const QuoteBaseType = {
+  _key: Type.String(),
+  body: Type.Optional(Type.Array(Type.Object({}))), // Simplified
+  speaker: Type.Optional(Type.String()),
+  work: Type.Optional(Type.String()),
+  citeHref: Type.Optional(Type.String()),
+};
+
+export const BlockQuoteType = Type.Object({
+  _type: Type.Literal("blockQuote"),
+  ...QuoteBaseType,
+});
+
+export const EpigraphType = Type.Object({
+  _type: Type.Literal("epigraph"),
+  ...QuoteBaseType,
+});
+
+// Replace BlogContentType with LongFormContentBlocksType
+export const LongFormContentBlocksType = Type.Array(
   Type.Union([
     BlockType,
-    Type.Object({
-      _type: Type.String(),
-      _key: Type.String(),
-    }),
+    ImageWithAltType,
+    CodeBlockType,
+    YouTubeEmbedType,
+    DividerType,
+    BlockQuoteType,
+    EpigraphType,
   ])
 );
-export type BlogContentType = Static<typeof BlogContentType>;
+export type LongFormContentBlocksType = Static<typeof LongFormContentBlocksType>;
 
 // Blog post short (for listings)
 export const BlogPostShortType = Type.Object({
@@ -82,7 +145,7 @@ export const BlogPostType = Type.Object({
   title: Type.String(),
   blurb: Type.String(),
   date: Type.String(),
-  body: BlogContentType,
+  body: LongFormContentBlocksType,
   author: AuthorType,
   category: CategoryType,
   tags: Type.Array(TagType),

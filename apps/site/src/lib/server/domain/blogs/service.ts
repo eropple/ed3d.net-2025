@@ -191,9 +191,23 @@ export class BlogPostService {
   }
 
   private static _transformBlogPost(blogPost: BlogContent): BlogPostType {
+    // Transform the blog post to match the TypeBox schema
     return {
       ...BlogPostService._transformBlogPostShort(blogPost),
-      body: blogPost.body,
+      body: blogPost.body.map(block => {
+        // Type transformations to handle null vs undefined differences
+        if (block._type === "block") {
+          return {
+            ...block,
+            children: block.children || undefined,
+            markDefs: block.markDefs || undefined,
+            style: block.style || undefined,
+            listItem: block.listItem || undefined,
+            level: block.level || undefined,
+          };
+        }
+        return block;
+      }),
     };
   }
 

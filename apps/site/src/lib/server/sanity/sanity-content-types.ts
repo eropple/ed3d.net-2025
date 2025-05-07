@@ -211,6 +211,11 @@ export type Podcast = {
   iTunesType: "serial" | "episodic";
 };
 
+export type CodeBlock = {
+  _type: "codeBlock";
+  code: Code;
+};
+
 export type YoutubeEmbed = {
   _type: "youtubeEmbed";
   title?: string;
@@ -238,6 +243,7 @@ export type ImageWithAlt = {
   };
   altText: string;
   caption?: string;
+  attribution?: string;
 };
 
 export type BlockQuote = {
@@ -328,6 +334,9 @@ export type LongFormBlockContent = Array<
   | ({
       _key: string;
     } & Divider)
+  | ({
+      _key: string;
+    } & CodeBlock)
   | ({
       _key: string;
     } & YoutubeEmbed)
@@ -499,6 +508,14 @@ export type Slug = {
   source?: string;
 };
 
+export type Code = {
+  _type: "code";
+  language?: string;
+  filename?: string;
+  code?: string;
+  highlightedLines?: Array<number>;
+};
+
 export type Color = {
   _type: "color";
   hex?: string;
@@ -543,6 +560,7 @@ export type AllSanitySchemaTypes =
   | SanityFileAsset
   | PodcastFeed
   | Podcast
+  | CodeBlock
   | YoutubeEmbed
   | Divider
   | ImageWithAlt
@@ -561,6 +579,7 @@ export type AllSanitySchemaTypes =
   | SanityAssetSourceData
   | SanityImageMetadata
   | Slug
+  | Code
   | Color
   | RgbaColor
   | HsvaColor

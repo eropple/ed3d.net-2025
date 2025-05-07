@@ -16,7 +16,7 @@
 	<meta property="og:published_time" content={new Date(blogPost.date).toISOString()} />
 	<meta name="twitter:card" content="summary" />
 	<meta name="twitter:site" content={SITE_NAME} />
-	<meta name="twitter:creator" content="@edropple" />
+	<meta name="twitter:creator" content="@ed3d.net" />
 	<meta name="twitter:title" content={blogPost.title} />
 	<meta name="twitter:description" content={blogPost.blurb} />
 </svelte:head>

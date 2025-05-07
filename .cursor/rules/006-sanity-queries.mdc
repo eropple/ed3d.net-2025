@@ -1,0 +1,111 @@
+---
+description: 
+globs: **/sanity/**/*,**/projections.ts
+alwaysApply: false
+---
+# Sanity Backend Integration Guide
+
+## Overview
+This guide explains how to work with Sanity content in our backend codebase using GROQD for type-safe queries.
+
+## Key Files
+- [apps/site/src/lib/server/domain/blogs/projections.ts](mdc:apps/site/src/lib/server/domain/blogs/projections.ts) - Defines type-safe projections for Sanity content
+- [apps/site/src/lib/server/domain/blogs/service.ts](mdc:apps/site/src/lib/server/domain/blogs/service.ts) - Service methods to fetch content using projections
+- [apps/site/src/lib/server/sanity/query-builder.ts](mdc:apps/site/src/lib/server/sanity/query-builder.ts) - Sets up GROQD with Sanity schema types
+- [apps/site/src/lib/domain/blogs/types.ts](mdc:apps/site/src/lib/domain/blogs/types.ts) - Client-side type definitions
+
+## Content Projections
+
+### Creating Projections
+1. Use `fragmentForType<>()` for top-level Sanity document types:
+```typescript
+export const authorProjection = q
+  .fragmentForType<"author">()
+  .project((sub) => ({
+    slug: sub.field("slug.current", q.string()),
+    // other fields...
+  }));
+```
+
+2. Use `fragment<>()` for array item types or nested types:
+```typescript
+export const longFormBlockContentProjection = q
+  .fragment<LongFormBlockContent[number]>()
+  .project((bodySub) => ({
+    _key: bodySub.field("_key"),
+    _type: bodySub.field("_type"),
+    // other fields...
+  }));
+```
+
+### Field Access Patterns
+- For nested fields, use chain syntax for better type support:
+```typescript
+image: sub
+  .field("image")
+  .field("asset")
+  .deref()
+```
+
+- For dereferencing assets, always use `.deref()` to follow references:
+```typescript
+.field("asset").deref().project((imgSub) => ({
+  url: imgSub.field("url"),
+}))
+```
+
+### Handling Polymorphic Content
+When working with array fields that can contain different types (like block content):
+
+1. Create a fragment for each possible type:
+```typescript
+export const imageWithAltProjection = q
+  .fragmentForType<"imageWithAlt">()
+  .project((sub) => ({
+    _type: sub.field("_type"),
+    // fields specific to this type...
+  }));
+```
+
+2. Use `conditionalByType` in the parent projection:
+```typescript
+body: sub.field("body[]").project((bodySub) => ({
+  _key: bodySub.field("_key"),
+  _type: bodySub.field("_type"),
+  
+  ...bodySub.conditionalByType({
+    imageWithAlt: imageWithAltProjection,
+    block: {
+      // fields for block type...
+    },
+    // other type handlers...
+  }),
+})),
+```
+
+Important: When using fragments in `conditionalByType`, don't include `_key` in the fragment if it's already included at the parent level.
+
+## Querying Content
+Use projections with the query builder to create type-safe queries:
+
+```typescript
+const query = q
+  .parameters<GetBlogPostParamsType>()
+  .star.filterByType("blogPost")
+  .filterBy("slug.current == $slug")
+  .project(blogProjection);
+
+const result = await queryRunner(query, { parameters: params });
+```
+
+## Data Transformation
+Always transform Sanity document types to client-facing types before returning:
+
+```typescript
+return {
+  slug: blogShort.slug,
+  title: blogShort.title,
+  // transform other fields as needed
+};
+```
+```

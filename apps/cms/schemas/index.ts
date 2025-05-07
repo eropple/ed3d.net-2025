@@ -16,6 +16,7 @@ import { PodcastShow } from './podcast/show';
 import { StagesObject } from './util/stages';
 import { SimpleContent } from './long-form/simple-content';
 import { BlockQuote, Epigraph } from './long-form/block-quote';
+import { CodeBlock } from "./long-form/code-block";
 
 export const schemaTypes = [
   Author,
@@ -32,6 +33,7 @@ export const schemaTypes = [
   ImageWithAlt,
   Divider,
   YouTubeEmbed,
+  CodeBlock,
 
   PodcastShow,
   PodcastFeed,
