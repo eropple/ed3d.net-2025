@@ -13,6 +13,7 @@
   let currentView: 'editor' | 'html' = 'editor';
   let htmlOutput: string = "";
   let activeExtensionNames = new Set<string>(); // To store names of active extensions
+  let currentBlockType: 'paragraph' | 'codeBlock' | 'blockquote' | 'other' = 'paragraph'; // For the dropdown
 
   // Reactive update if 'content' prop changes from parent
   $: if (editorInstance && typeof content === 'string' && content !== htmlOutput && !editorInstance.isFocused) {
@@ -40,8 +41,19 @@
             content = currentHTML;
           }
         },
-        onTransaction: () => {
+        onTransaction: ({ editor: trEditor }) => {
           editorInstance = editorInstance; // For Svelte's reactivity on editor.isActive()
+
+          // Update currentBlockType for the dropdown
+          if (trEditor.isActive('paragraph')) {
+            currentBlockType = 'paragraph';
+          } else if (trEditor.isActive('codeBlock')) {
+            currentBlockType = 'codeBlock';
+          } else if (trEditor.isActive('blockquote')) {
+            currentBlockType = 'blockquote';
+          } else {
+            currentBlockType = 'other'; // Or handle other block types if they become relevant
+          }
         }
       });
       editorInstance = tiptapEditor;
@@ -61,7 +73,71 @@
   function toggleItalic() {
     editorInstance?.chain().focus().toggleItalic().run();
   }
-  // Add more toggle functions here for other buttons as needed e.g. toggleCode, toggleLink etc.
+
+  function toggleBlockquote() {
+    editorInstance?.chain().focus().toggleBlockquote().run();
+  }
+
+  function toggleBulletList() {
+    editorInstance?.chain().focus().toggleBulletList().run();
+  }
+
+  function toggleOrderedList() {
+    editorInstance?.chain().focus().toggleOrderedList().run();
+  }
+
+  function toggleCodeBlock() {
+    editorInstance?.chain().focus().toggleCodeBlock().run();
+  }
+
+  function setParagraph() {
+    editorInstance?.chain().focus().setParagraph().run();
+  }
+
+  function handleBlockTypeChange(event: Event) {
+    const target = event.target as HTMLSelectElement;
+    const value = target.value;
+
+    if (value === 'paragraph') {
+      setParagraph();
+    } else if (value === 'codeBlock') {
+      toggleCodeBlock();
+    } else if (value === 'blockquote') {
+      toggleBlockquote();
+    }
+    editorInstance?.chain().focus().run(); // Ensure focus returns to the editor
+  }
+
+  function toggleCode() { // For inline code
+    editorInstance?.chain().focus().toggleCode().run();
+  }
+
+  function setLink() {
+    const previousUrl = editorInstance?.getAttributes('link').href;
+    const url = window.prompt('URL', previousUrl);
+
+    // cancelled
+    if (url === null) {
+      return;
+    }
+
+    // empty
+    if (url === '') {
+      editorInstance?.chain().focus().extendMarkRange('link').unsetLink().run();
+      return;
+    }
+
+    // update link
+    editorInstance?.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+  }
+
+  function toggleSubscript() {
+    editorInstance?.chain().focus().toggleSubscript().run();
+  }
+
+  function toggleSuperscript() {
+    editorInstance?.chain().focus().toggleSuperscript().run();
+  }
 
 </script>
 
@@ -84,6 +160,22 @@
   {#if currentView === 'editor'}
     <div class="toolbar mb-2 p-1 border-b">
       {#if editorInstance}
+        {#if activeExtensionNames.has('paragraph') || activeExtensionNames.has('codeBlock') || activeExtensionNames.has('blockquote')}
+          <select
+            class="toolbar-select"
+            on:change={handleBlockTypeChange}
+            title="Block type"
+          >
+            <option value="paragraph" selected={currentBlockType === 'paragraph'}>Normal</option>
+            {#if activeExtensionNames.has('codeBlock')}
+              <option value="codeBlock" selected={currentBlockType === 'codeBlock'}>Code Block</option>
+            {/if}
+            {#if activeExtensionNames.has('blockquote')}
+              <option value="blockquote" selected={currentBlockType === 'blockquote'}>Quote</option>
+            {/if}
+            <!-- Add other block types here if needed -->
+          </select>
+        {/if}
         {#if activeExtensionNames.has('bold')}
           <button
             class="toolbar-button"
@@ -104,17 +196,66 @@
             I
           </button>
         {/if}
-        <!-- {/*
-          Dynamically add other buttons based on activeExtensionNames:
-          e.g.
-          {#if activeExtensionNames.has('code')} ... toggleCode ... {/if}
-          {#if activeExtensionNames.has('link')} ... setLink ... {/if}
-          {#if activeExtensionNames.has('strike')} ... toggleStrike ... {/if}
-          {#if activeExtensionNames.has('bulletList')} ... toggleBulletList ... {/if}
-          {#if activeExtensionNames.has('orderedList')} ... toggleOrderedList ... {/if}
-          {#if activeExtensionNames.has('blockquote')} ... toggleBlockquote ... {/if}
-          {#if activeExtensionNames.has('codeBlock')} ... toggleCodeBlock ... {/if}
-        */} -->
+        {#if activeExtensionNames.has('code')}
+          <button
+            class="toolbar-button"
+            class:active={editorInstance.isActive('code')}
+            on:click={toggleCode}
+            title="Code"
+          >
+            &lt;/&gt;
+          </button>
+        {/if}
+        {#if activeExtensionNames.has('link')}
+          <button
+            class="toolbar-button"
+            class:active={editorInstance.isActive('link')}
+            on:click={setLink}
+            title="Link"
+          >
+            Link
+          </button>
+        {/if}
+        {#if activeExtensionNames.has('bulletList')}
+          <button
+            class="toolbar-button"
+            class:active={editorInstance.isActive('bulletList')}
+            on:click={toggleBulletList}
+            title="Bullet List"
+          >
+            UL
+          </button>
+        {/if}
+        {#if activeExtensionNames.has('orderedList')}
+          <button
+            class="toolbar-button"
+            class:active={editorInstance.isActive('orderedList')}
+            on:click={toggleOrderedList}
+            title="Ordered List"
+          >
+            OL
+          </button>
+        {/if}
+        {#if activeExtensionNames.has('subscript')}
+          <button
+            class="toolbar-button"
+            class:active={editorInstance.isActive('subscript')}
+            on:click={toggleSubscript}
+            title="Subscript"
+          >
+            X₂
+          </button>
+        {/if}
+        {#if activeExtensionNames.has('superscript')}
+          <button
+            class="toolbar-button"
+            class:active={editorInstance.isActive('superscript')}
+            on:click={toggleSuperscript}
+            title="Superscript"
+          >
+            X²
+          </button>
+        {/if}
       {:else}
         <span class="text-xs text-gray-500">Loading toolbar...</span>
       {/if}
@@ -160,23 +301,28 @@
     flex-wrap: wrap; /* Allow buttons to wrap if many */
   }
 
-  .toolbar-button {
+  .toolbar-button, .toolbar-select { /* Apply similar styling to select */
     font-family: sans-serif;
     padding: 0.25rem 0.5rem;
     border: 1px solid #ccc;
     background-color: #f9f9f9;
     cursor: pointer;
     border-radius: 3px;
-    font-weight: bold;
-    min-width: 28px; /* Ensure buttons have some minimum width */
-    text-align: center;
+    /* font-weight: bold; Ensure select text is not bold if not desired */
+    min-width: 28px;
+    text-align: left; /* For select, left align might be better */
   }
-  .toolbar-button:hover {
+  .toolbar-select {
+    padding-right: 1.5rem; /* Make space for dropdown arrow */
+    appearance: none; /* Optional: for custom arrow styling later */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+    background-position: right 0.5rem center;
+    background-repeat: no-repeat;
+    background-size: 1em 1em;
+  }
+
+  .toolbar-button:hover, .toolbar-select:hover {
     background-color: #eee;
-  }
-  .toolbar-button.active {
-    background-color: #ddd;
-    border-color: #bbb;
   }
 
   /* svelte-ignore css_unused_selector */
