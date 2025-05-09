@@ -1,72 +1,80 @@
 <script lang="ts">
-  import type { Editor, Content } from "@tiptap/core";
-  import type { Readable } from 'svelte/store';
-  import { get } from 'svelte/store'; // Import get for synchronous access to store value
-  import { createEditor, EditorContent } from "svelte-tiptap";
-  import { getPresetExtensions, type TipTapPresetKind } from "$lib/shared/tiptap-presets";
+  import { onMount, onDestroy } from 'svelte';
+  import { Editor, type Content } from '@tiptap/core';
+  import { getPresetExtensions, type TipTapPresetKind } from '$lib/shared/tiptap-presets';
 
   // --- Props ---
-  let { mode, content = $bindable("") } = $props<{
-    mode: TipTapPresetKind;
-    content?: Content; // Can be HTML string, JSON, or Document
-  }>();
+  // For Svelte 4 style, props are declared with 'export let'
+  export let mode: TipTapPresetKind;
+  export let content: Content = ""; // HTML string or JSON object
 
-  // --- State ---
-  // editorStore will hold the Readable<Editor> store returned by createEditor
-  let editorStore = $state<Readable<Editor> | null>(null);
-  let editorElement = $state<HTMLElement | undefined>(undefined);
+  // --- Reactive variables (Svelte 4 style) ---
+  let editorInstance: Editor | null = null; // Will hold the Tiptap Editor instance
+  let editorElement: HTMLElement; // Bound to the div Tiptap uses
 
-  let currentView = $state<'editor' | 'html'>('editor');
-  let htmlOutput = $state("");
+  let currentView: 'editor' | 'html' = 'editor';
+  let htmlOutput: string = "";
 
-  // Effect for editor creation and destruction
-  $effect(() => {
-    const el = editorElement;
-    // Only create if element is available and editorStore hasn't been initialized yet
-    if (el && !editorStore) {
+  // When 'content' prop changes from the parent, update the editor
+  // This is a common pattern for one-way prop updates feeding into the component.
+  // For two-way binding, the parent would also listen to an event from this component.
+  $: if (editorInstance && typeof content === 'string' && content !== htmlOutput && !editorInstance.isFocused) {
+    // Check if editor is not focused to avoid disrupting typing.
+    // More complex scenarios might need debouncing or other strategies.
+    editorInstance.commands.setContent(content, false); // false: don't emit an 'onUpdate'
+    htmlOutput = editorInstance.getHTML(); // Keep htmlOutput in sync
+  } else if (editorInstance && typeof content !== 'string' && !editorInstance.isFocused) {
+    // Handle non-string content (e.g., JSON) - though our primary flow uses HTML strings
+    editorInstance.commands.setContent(content, false);
+    htmlOutput = editorInstance.getHTML();
+  }
+
+
+  onMount(() => {
+    if (editorElement) {
       const extensions = getPresetExtensions(mode);
-      const tiptapReadableEditor = createEditor({ // This returns Readable<Editor>
-        element: el,
+      const tiptapEditor = new Editor({
+        element: editorElement,
         extensions: extensions,
-        content: content, // Initial content from prop
-        onUpdate: ({ editor: actualEditorInstance }) => { // actualEditorInstance IS an Editor instance
-          const currentHTML = actualEditorInstance.getHTML();
-          content = currentHTML; // Update bound 'content' prop with HTML
-          htmlOutput = currentHTML; // Update HTML output for the view
+        content: content, // Initial content
+        onUpdate: ({ editor: updatedEditor }) => {
+          const currentHTML = updatedEditor.getHTML();
+          // To achieve two-way binding in Svelte 4 style, we'd typically dispatch an event:
+          // dispatch('contentChange', currentHTML);
+          // For simplicity and directness with bind:content in parent, we'll try to update the prop
+          // This can sometimes be tricky if parent also updates it.
+          // The most robust Svelte 4 way is often event dispatching + parent handling.
+          // However, for this iteration, let's see if direct assignment is stable enough
+          // *after* initial setup.
+          // This will primarily update htmlOutput, and the $: block handles incoming 'content' changes.
+          htmlOutput = currentHTML;
+
+          // If we want to try to make `bind:content` work directly, we'd do:
+          // content = currentHTML; // This would be the equivalent of what $bindable does
+                                // But we need to be careful with loops if parent also sets it.
+                                // For now, let htmlOutput be the source of truth for the HTML view.
+                                // The parent should update its 'content' based on an event if true 2-way is needed.
+
+          // Let's attempt direct update for bind:content like behavior for now
+          if (content !== currentHTML) { // Avoid redundant updates
+             content = currentHTML;
+          }
         },
       });
-      editorStore = tiptapReadableEditor; // Assign the store
-
-      // Set initial htmlOutput after editor is created by getting the instance from the store
-      const initialEditorInstance = get(tiptapReadableEditor);
-      if (initialEditorInstance) {
-        htmlOutput = initialEditorInstance.getHTML();
-      }
+      editorInstance = tiptapEditor;
+      htmlOutput = editorInstance.getHTML(); // Set initial HTML output
     }
 
     return () => {
-      // To destroy, we need the actual editor instance from the store
-      const currentEditorInstance = editorStore ? get(editorStore) : null;
-      currentEditorInstance?.destroy();
-      editorStore = null; // Clear the store on component destruction
+      editorInstance?.destroy();
     };
   });
 
-  // Effect to handle external changes to the 'content' prop
-  $effect(() => {
-    const currentEditorInstance = editorStore ? get(editorStore) : null;
-    if (currentEditorInstance && content !== htmlOutput && !currentEditorInstance.isFocused) {
-      const { from, to } = currentEditorInstance.state.selection;
-      currentEditorInstance.commands.setContent(content, false); // false: don't emit 'onUpdate'
-      try {
-        // Attempt to restore selection if the content length/structure allows
-        currentEditorInstance.commands.setTextSelection({ from: Math.min(from, currentEditorInstance.state.doc.content.size), to: Math.min(to, currentEditorInstance.state.doc.content.size) });
-      } catch (e) {
-        currentEditorInstance.commands.focus('end');
-      }
-      htmlOutput = currentEditorInstance.getHTML(); // Sync htmlOutput
-    }
-  });
+  // Svelte 4 way to keep htmlOutput in sync if content prop changes after mount
+  // and editor isn't focused. This is covered by the $: block above already.
+  // $: if (editorInstance && content !== htmlOutput && !editorInstance.isFocused) {
+  //   editorInstance.commands.setContent(content, false);
+  // }
 
 </script>
 
@@ -74,29 +82,31 @@
   <div class="tabs mb-2 border-b">
     <button
       class:selected={currentView === 'editor'}
-      onclick={() => currentView = 'editor'}
+      on:click={() => currentView = 'editor'}
     >
       Editor
     </button>
     <button
       class:selected={currentView === 'html'}
-      onclick={() => currentView = 'html'}
+      on:click={() => currentView = 'html'}
     >
       HTML
     </button>
   </div>
 
-  {#if currentView === 'editor' && $editorStore}
-    {@const editor: any = $editorStore}
-    <div bind:this={editorElement} class="prose dark:prose-invert max-w-none p-2">
-      {#if editorStore}
-        <EditorContent editor={editor} />
-      {:else}
-        <p>Loading editor...</p>
-      {/if}
-    </div>
-  {:else if currentView === 'html'}
-    <pre class="html-output p-2 text-sm overflow-auto bg-gray-50 dark:bg-gray-800">{htmlOutput}</pre>
+  <!-- This div is the Tiptap editor. It's always in the DOM for stable binding. -->
+  <div
+    bind:this={editorElement}
+    class="tiptap-prose-editor-wrapper prose max-w-none p-2"
+    style:display={currentView === 'editor' ? 'block' : 'none'}
+  >
+    {#if currentView === 'editor' && !editorInstance}
+      <p>Loading editor...</p>
+    {/if}
+  </div>
+
+  {#if currentView === 'html'}
+    <pre class="html-output p-2 text-sm overflow-auto bg-gray-50">{htmlOutput}</pre>
   {/if}
 </div>
 
@@ -104,39 +114,30 @@
   .editor-container {
     border-color: #ccc;
   }
-  .dark .editor-container {
-    border-color: #555;
-  }
 
   .tabs button {
     padding: 0.5rem 1rem;
     border: none;
     background-color: transparent;
     cursor: pointer;
-    color: inherit; /* Ensure text color inherits for dark mode */
+    color: inherit;
   }
   .tabs button.selected {
-    border-bottom: 2px solid blue; /* Theme this color */
+    border-bottom: 2px solid blue;
     font-weight: bold;
   }
-  .dark .tabs button.selected {
-    border-bottom-color: lightblue; /* Theme this color for dark mode */
-  }
 
-  .prose :global(.tiptap) {
+  .tiptap-prose-editor-wrapper.ProseMirror {
     min-height: 150px;
     outline: none;
   }
 
-  :global(.tiptap p.is-editor-empty:first-child::before) {
+  :global(.ProseMirror p.is-editor-empty:first-child::before) {
     content: attr(data-placeholder);
     float: left;
     color: #adb5bd;
     pointer-events: none;
     height: 0;
-  }
-  .dark :global(.tiptap p.is-editor-empty:first-child::before) {
-    color: #777;
   }
 
   .html-output {

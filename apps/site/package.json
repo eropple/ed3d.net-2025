@@ -107,7 +107,6 @@
 		"sleep-promise": "^9.1.0",
 		"stale-while-revalidate-cache": "^3.4.0",
 		"svelte-fa": "^4.0.3",
-		"svelte-tiptap": "^2.1.0",
 		"svelte-youtube-embed": "^0.4.4",
 		"sveltekit-flash-message": "^2.4.6",
 		"ulidx": "^2.4.1",
