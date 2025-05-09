@@ -13,7 +13,11 @@
 
   <div class="mb-8 p-4 border border-slate-300 rounded-lg shadow">
     <h2 class="text-xl font-semibold mb-2 text-slate-700">Editor Instance ({editorMode} mode)</h2>
-    <RichTextEditor mode={editorMode} bind:content={editorContent} />
+    <RichTextEditor
+      mode={editorMode}
+      bind:content={editorContent}
+      on:contentChange={(event) => editorContent = event.detail}
+    />
   </div>
 
   <div class="p-4 border border-slate-300 rounded-lg bg-slate-50 shadow">

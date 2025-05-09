@@ -1,68 +1,51 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { Editor, type Content } from '@tiptap/core';
+  import { Editor, type Content, type AnyExtension } from '@tiptap/core';
   import { getPresetExtensions, type TipTapPresetKind } from '$lib/shared/tiptap-presets';
 
   // --- Props ---
-  // For Svelte 4 style, props are declared with 'export let'
   export let mode: TipTapPresetKind;
-  export let content: Content = ""; // HTML string or JSON object
+  export let content: Content = "";
 
-  // --- Reactive variables (Svelte 4 style) ---
-  let editorInstance: Editor | null = null; // Will hold the Tiptap Editor instance
-  let editorElement: HTMLElement; // Bound to the div Tiptap uses
-
+  // --- Component State ---
+  let editorInstance: Editor | null = null;
+  let editorElement: HTMLElement;
   let currentView: 'editor' | 'html' = 'editor';
   let htmlOutput: string = "";
+  let activeExtensionNames = new Set<string>(); // To store names of active extensions
 
-  // When 'content' prop changes from the parent, update the editor
-  // This is a common pattern for one-way prop updates feeding into the component.
-  // For two-way binding, the parent would also listen to an event from this component.
+  // Reactive update if 'content' prop changes from parent
   $: if (editorInstance && typeof content === 'string' && content !== htmlOutput && !editorInstance.isFocused) {
-    // Check if editor is not focused to avoid disrupting typing.
-    // More complex scenarios might need debouncing or other strategies.
-    editorInstance.commands.setContent(content, false); // false: don't emit an 'onUpdate'
-    htmlOutput = editorInstance.getHTML(); // Keep htmlOutput in sync
+    editorInstance.commands.setContent(content, false);
+    htmlOutput = editorInstance.getHTML();
   } else if (editorInstance && typeof content !== 'string' && !editorInstance.isFocused) {
-    // Handle non-string content (e.g., JSON) - though our primary flow uses HTML strings
     editorInstance.commands.setContent(content, false);
     htmlOutput = editorInstance.getHTML();
   }
 
-
   onMount(() => {
     if (editorElement) {
       const extensions = getPresetExtensions(mode);
+      activeExtensionNames = new Set(extensions.map(ext => ext.name)); // Store names of active extensions
+
       const tiptapEditor = new Editor({
         element: editorElement,
         extensions: extensions,
-        content: content, // Initial content
+        content: content,
         onUpdate: ({ editor: updatedEditor }) => {
           const currentHTML = updatedEditor.getHTML();
-          // To achieve two-way binding in Svelte 4 style, we'd typically dispatch an event:
-          // dispatch('contentChange', currentHTML);
-          // For simplicity and directness with bind:content in parent, we'll try to update the prop
-          // This can sometimes be tricky if parent also updates it.
-          // The most robust Svelte 4 way is often event dispatching + parent handling.
-          // However, for this iteration, let's see if direct assignment is stable enough
-          // *after* initial setup.
-          // This will primarily update htmlOutput, and the $: block handles incoming 'content' changes.
           htmlOutput = currentHTML;
-
-          // If we want to try to make `bind:content` work directly, we'd do:
-          // content = currentHTML; // This would be the equivalent of what $bindable does
-                                // But we need to be careful with loops if parent also sets it.
-                                // For now, let htmlOutput be the source of truth for the HTML view.
-                                // The parent should update its 'content' based on an event if true 2-way is needed.
-
-          // Let's attempt direct update for bind:content like behavior for now
-          if (content !== currentHTML) { // Avoid redundant updates
-             content = currentHTML;
+          // Update the 'content' prop for bind:content to work
+          if (content !== currentHTML) {
+            content = currentHTML;
           }
         },
+        onTransaction: () => {
+          editorInstance = editorInstance; // For Svelte's reactivity on editor.isActive()
+        }
       });
       editorInstance = tiptapEditor;
-      htmlOutput = editorInstance.getHTML(); // Set initial HTML output
+      htmlOutput = editorInstance.getHTML();
     }
 
     return () => {
@@ -70,11 +53,15 @@
     };
   });
 
-  // Svelte 4 way to keep htmlOutput in sync if content prop changes after mount
-  // and editor isn't focused. This is covered by the $: block above already.
-  // $: if (editorInstance && content !== htmlOutput && !editorInstance.isFocused) {
-  //   editorInstance.commands.setContent(content, false);
-  // }
+  // Toolbar button actions
+  function toggleBold() {
+    editorInstance?.chain().focus().toggleBold().run();
+  }
+
+  function toggleItalic() {
+    editorInstance?.chain().focus().toggleItalic().run();
+  }
+  // Add more toggle functions here for other buttons as needed e.g. toggleCode, toggleLink etc.
 
 </script>
 
@@ -94,7 +81,46 @@
     </button>
   </div>
 
-  <!-- This div is the Tiptap editor. It's always in the DOM for stable binding. -->
+  {#if currentView === 'editor'}
+    <div class="toolbar mb-2 p-1 border-b">
+      {#if editorInstance}
+        {#if activeExtensionNames.has('bold')}
+          <button
+            class="toolbar-button"
+            class:active={editorInstance.isActive('bold')}
+            on:click={toggleBold}
+            title="Bold (Ctrl+B)"
+          >
+            B
+          </button>
+        {/if}
+        {#if activeExtensionNames.has('italic')}
+          <button
+            class="toolbar-button"
+            class:active={editorInstance.isActive('italic')}
+            on:click={toggleItalic}
+            title="Italic (Ctrl+I)"
+          >
+            I
+          </button>
+        {/if}
+        <!-- {/*
+          Dynamically add other buttons based on activeExtensionNames:
+          e.g.
+          {#if activeExtensionNames.has('code')} ... toggleCode ... {/if}
+          {#if activeExtensionNames.has('link')} ... setLink ... {/if}
+          {#if activeExtensionNames.has('strike')} ... toggleStrike ... {/if}
+          {#if activeExtensionNames.has('bulletList')} ... toggleBulletList ... {/if}
+          {#if activeExtensionNames.has('orderedList')} ... toggleOrderedList ... {/if}
+          {#if activeExtensionNames.has('blockquote')} ... toggleBlockquote ... {/if}
+          {#if activeExtensionNames.has('codeBlock')} ... toggleCodeBlock ... {/if}
+        */} -->
+      {:else}
+        <span class="text-xs text-gray-500">Loading toolbar...</span>
+      {/if}
+    </div>
+  {/if}
+
   <div
     bind:this={editorElement}
     class="tiptap-prose-editor-wrapper prose max-w-none p-2"
@@ -127,6 +153,33 @@
     font-weight: bold;
   }
 
+  .toolbar {
+    display: flex;
+    gap: 0.25rem;
+    border-color: #eee;
+    flex-wrap: wrap; /* Allow buttons to wrap if many */
+  }
+
+  .toolbar-button {
+    font-family: sans-serif;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid #ccc;
+    background-color: #f9f9f9;
+    cursor: pointer;
+    border-radius: 3px;
+    font-weight: bold;
+    min-width: 28px; /* Ensure buttons have some minimum width */
+    text-align: center;
+  }
+  .toolbar-button:hover {
+    background-color: #eee;
+  }
+  .toolbar-button.active {
+    background-color: #ddd;
+    border-color: #bbb;
+  }
+
+  /* svelte-ignore css_unused_selector */
   .tiptap-prose-editor-wrapper.ProseMirror {
     min-height: 150px;
     outline: none;
