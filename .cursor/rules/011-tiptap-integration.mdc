@@ -1,0 +1,66 @@
+---
+description: 
+globs: **/RichTextEditor.svelte,**/tiptap-presets.ts
+alwaysApply: false
+---
+# Tiptap Rich Text Editor Integration
+
+This document outlines the strategy for integrating the Tiptap rich text editor into the SvelteKit application, focusing on Svelte 5 best practices.
+
+## Core Strategy
+
+1.  **Shared Presets:** Tiptap editor configurations, known as "presets," are defined in a shared location to be accessible by both client-side components and server-side validation logic. This ensures consistency in allowed extensions and their configurations.
+    -   **Location:** [apps/site/src/lib/shared/tiptap-presets.ts](mdc:apps/site/src/lib/shared/tiptap-presets.ts)
+    -   **Structure:**
+        -   `TipTapPresetKind`: A type union for preset names (e.g., `"comment"`).
+        -   `TipTapPreset`: An interface defining the structure of a preset, primarily an array of Tiptap `AnyExtension[]`.
+        -   `tipTapPresets`: A `Record<TipTapPresetKind, TipTapPreset>` storing the actual preset configurations.
+        -   `getPresetExtensions(kind: TipTapPresetKind)`: A helper function to retrieve extensions for a given preset.
+    -   **Initial Preset (`comment`):**
+        -   **Nodes:** `Document`, `Paragraph`, `Text`, `Blockquote`, `BulletList`, `OrderedList`, `ListItem`, `CodeBlock`.
+        -   **Marks:** `Bold`, `Italic`, `Code` (inline), `Link` (configured with `rel: 'nofollow ugc'`, `target: '_blank'`, `openOnClick: false`, `autolink: true`, `linkOnPaste: true`), `Subscript`, `Superscript`, `TextStyle`.
+        -   `StarterKit` is intentionally avoided for granular control over extensions.
+
+2.  **Reusable Svelte 5 Component:**
+    -   **Location:** [apps/site/src/lib/components/RichTextEditor.svelte](mdc:apps/site/src/lib/components/RichTextEditor.svelte)
+    -   **Implementation:**
+        -   Uses Svelte 5 Runes (`$props`, `$state`, `$effect`, `$bindable`).
+        -   Accepts a `mode: TipTapPresetKind` prop to select the extension set.
+        -   Accepts a `content: Content` prop (bindable) for the editor's content (HTML or JSON).
+        -   Uses `createEditor` and `EditorContent` from the `svelte-tiptap` library.
+        -   `createEditor` returns a `Readable<Editor>` (Svelte store), which is managed by the component. `get()` from `svelte/store` is used to access the underlying editor instance when needed.
+        -   Includes a tabbed view to switch between the live editor and an HTML source view.
+    -   **Styling:** Leverages Tailwind CSS, potentially with the `@tailwindcss/typography` plugin's `prose` classes for content styling. Component-specific styles are within the `<style>` block.
+
+3.  **Server-Side Validation (Planned):**
+    -   **Mechanism:** When content is submitted (likely as JSON from `editor.getJSON()`), the server will:
+        1.  Import `getSchema` from `@tiptap/core` and `Node` (as `ProseMirrorNode`) from `prosemirror-model`.
+        2.  Load the appropriate extension array from the shared `tiptap-presets.ts` based on the submitted content's `mode`.
+        3.  Generate the ProseMirror schema: `const schema = getSchema(extensionsForMode);`.
+        4.  Validate the submitted JSON against this schema: `ProseMirrorNode.fromJSON(schema, submittedJSON)`.
+        5.  If `fromJSON` succeeds, the content is valid according to the schema. The output (`prosemirrorDoc.toJSON()`) should be stored.
+        6.  If `fromJSON` throws an error, the content is invalid.
+    -   **Goal:** Ensure that only content conforming to the defined presets can be saved, preventing injection of disallowed elements or attributes.
+
+## Key Libraries & Extensions
+
+-   `@tiptap/core`
+-   `@tiptap/extension-document`
+-   `@tiptap/extension-paragraph`
+-   `@tiptap/extension-text`
+-   `@tiptap/extension-blockquote`
+-   `@tiptap/extension-bullet-list`
+-   `@tiptap/extension-ordered-list`
+-   `@tiptap/extension-list-item`
+-   `@tiptap/extension-code-block`
+-   `@tiptap/extension-bold`
+-   `@tiptap/extension-italic`
+-   `@tiptap/extension-code` (inline)
+-   `@tiptap/extension-link`
+-   `@tiptap/extension-subscript`
+-   `@tiptap/extension-superscript`
+-   `@tiptap/extension-text-style`
+-   `svelte-tiptap` (for Svelte integration components)
+-   `prosemirror-model` (for server-side validation using `Node.fromJSON`)
+
+This rule file should provide a good overview of the Tiptap integration approach we've established.
