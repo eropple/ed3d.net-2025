@@ -1,6 +1,10 @@
 import { type Static, Type } from "@sinclair/typebox";
 import { TypeCompiler } from "@sinclair/typebox/compiler";
 
+import { CommentIds } from "$lib/domain/comments/ids.js";
+import { TextContentType } from "$lib/domain/texts/types.js";
+import { UserPublic } from "$lib/domain/users/types.js";
+
 // Basic types used across blog entities
 export const SlugType = Type.Object({
   current: Type.String(),
@@ -129,6 +133,7 @@ export type LongFormContentBlocksType = Static<typeof LongFormContentBlocksType>
 
 // Blog post short (for listings)
 export const BlogPostShortType = Type.Object({
+  id: Type.String(),
   slug: Type.String(),
   title: Type.String(),
   blurb: Type.String(),
@@ -141,6 +146,7 @@ export type BlogPostShortType = Static<typeof BlogPostShortType>;
 
 // Full blog post
 export const BlogPostType = Type.Object({
+  id: Type.String(),
   slug: Type.String(),
   title: Type.String(),
   blurb: Type.String(),
@@ -181,3 +187,28 @@ export const BlogCountsType = Type.Object({
   byMonths: Type.Record(Type.String(), Type.Number()),
 });
 export type BlogCountsType = Static<typeof BlogCountsType>;
+
+export const BlogPostCommentType = Type.Object({
+  __type: Type.Literal("BlogPostComment"),
+  commentId: CommentIds.TRichId,
+  blogPostId: Type.String(),
+  author: UserPublic,
+  textContent: TextContentType,
+  parentCommentId: Type.Optional(CommentIds.TRichId),
+  createdAt: Type.Date(),
+  updatedAt: Type.Optional(Type.Date()),
+});
+export type BlogPostCommentType = Static<typeof BlogPostCommentType>;
+
+export const BlogPostCommentNode = Type.Recursive(Self => Type.Object({
+  __type: Type.Literal("BlogPostCommentNode"),
+  value: BlogPostCommentType,
+  children: Type.Array(Self),
+}));
+export type BlogPostCommentNode = Static<typeof BlogPostCommentNode>;
+
+export const BlogPostCommentTree = Type.Object({
+  __type: Type.Literal("BlogPostCommentTree"),
+  children: Type.Array(BlogPostCommentNode),
+});
+export type BlogPostCommentTree = Static<typeof BlogPostCommentTree>;

@@ -30,11 +30,11 @@ export const actions: Actions = {
 
     if (validationResult.isValid) {
       logger.info("Schema validation successful!");
-      logger.info("Validated ProseMirror Document (JSON):", JSON.stringify(validationResult.validatedJson, null, 2));
+      logger.info("Validated ProseMirror Document (JSON):", JSON.stringify(validationResult.jsonContent, null, 2));
       return {
         success: true,
         message: "Content validated successfully against the schema.",
-        validatedJson: validationResult.validatedJson,
+        validatedJson: validationResult.jsonContent,
       };
     } else {
       logger.error({ validationError: validationResult }, "Schema validation failed.");

@@ -164,13 +164,13 @@
       class:selected={currentView === 'editor'}
       on:click={() => currentView = 'editor'}
     >
-      Editor
+      Edit
     </button>
     <button
       class:selected={currentView === 'html'}
       on:click={() => currentView = 'html'}
     >
-      HTML
+      Preview
     </button>
   </div>
 

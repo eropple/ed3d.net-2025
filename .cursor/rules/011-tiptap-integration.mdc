@@ -1,6 +1,6 @@
 ---
 description: 
-globs: **/RichTextEditor.svelte,**/tiptap-presets.ts
+globs: **/tiptap-presets.ts,**/tiptap-validation.ts,**/*.svelte
 alwaysApply: false
 ---
 # Tiptap Rich Text Editor Integration

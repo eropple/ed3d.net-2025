@@ -1,0 +1,191 @@
+---
+description: 
+globs: **/db/**/*,**/service.ts
+alwaysApply: false
+---
+## Drizzle ORM Schema Definition Guide (apps/site)
+
+This document outlines how Drizzle ORM is used to define the PostgreSQL database schema in `[apps/site/src/lib/server/db/schema/index.ts](mdc:apps/site/src/lib/server/db/schema/index.ts)`.
+
+### 1. Table Definition
+
+Tables are defined using `pgTable` from `drizzle-orm/pg-core`:
+
+```typescript
+import { pgTable, text, serial, index } from "drizzle-orm/pg-core"; // Added index for example
+// import { ULIDAsUUID } from "./path-to-ulid-helper"; // Assuming ULIDAsUUID is imported
+
+export const USERS = pgTable("users", {
+  // userUuid: ULIDAsUUID().primaryKey(), // Example assuming ULIDAsUUID is defined elsewhere
+  id: serial("id").primaryKey(), // Using standard serial for a simpler example here
+  username: text("username").notNull().unique(),
+  // ... other columns
+}, (t) => ([ // Example of returning an array of constraints/indexes
+  index("users_username_idx").on(t.username), // Example index
+]));
+```
+- The first argument is the table name.
+- The second argument is an object defining columns.
+- The third (optional) argument is a function returning an array of table-level constraints (e.g., multi-column primary keys, foreign keys, unique constraints) and indexes.
+
+### 2. Column Types & Custom Helpers
+
+- Standard Drizzle types (`text`, `timestamp`, `jsonb`, `pgEnum`, `integer`, `uuid`, etc.) are used.
+- **`ULIDAsUUID(columnName?: string)`**: A custom helper in `[apps/site/src/lib/server/db/schema/index.ts](mdc:apps/site/src/lib/server/db/schema/index.ts)` generates UUID columns that default to a ULID converted to a UUID. It uses `.$type<StringUUID>()` for Drizzle's internal type system (where `StringUUID` is a type alias for `string`).
+- **`.$type<Type>()`**: Used for specific Drizzle-level type hints on columns, e.g., `jsonb(...).$type<NodeJSON>()` for ProseMirror content, or `.$type<Sensitive<string>>()` for encrypted data (where `NodeJSON` and `Sensitive` are imported types).
+- Common column constraints: `.primaryKey()`, `.notNull()`, `.unique()`, `.defaultNow()`, `.default(...)`, `.$onUpdateFn(...)`.
+
+### 3. Mixins for Reusability
+
+To promote consistency for common columns like audit timestamps, mixin objects are defined and spread into table definitions:
+
+```typescript
+// Example Mixin (defined in apps/site/src/lib/server/db/schema/index.ts)
+import { timestamp } from "drizzle-orm/pg-core";
+
+export const TIMESTAMPS_MIXIN = {
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", {
+    withTimezone: true,
+    mode: "date",
+  }).$onUpdateFn(() => new Date()),
+};
+
+// Usage in a table
+import { pgTable, serial } from "drizzle-orm/pg-core";
+// import { ULIDAsUUID } from "./path-to-ulid-helper"; // Assuming ULIDAsUUID is defined
+
+export const SOME_TABLE = pgTable("some_table", {
+  // id: ULIDAsUUID().primaryKey(), // Example if using the custom helper
+  id: serial("id").primaryKey(), // Standard Drizzle example
+  // ... other specific columns
+  ...TIMESTAMPS_MIXIN,
+});
+```
+
+### 4. Primary Keys
+
+- **Single Column**: `.primaryKey()` chained to the column definition.
+  ```typescript
+  // import { ULIDAsUUID } from "./path-to-ulid-helper"; // Assuming ULIDAsUUID is defined
+  // commentUuid: ULIDAsUUID("comment_uuid").primaryKey(), // Specific example
+  ```
+- **Composite**: `primaryKey({ columns: [t.colA, t.colB] })` returned in the table definition callback array. The `name` property is optional for naming the constraint.
+  ```typescript
+  import { pgTable, primaryKey, text } from "drizzle-orm/pg-core";
+  const exampleTable = pgTable("example", { // tslint:disable-line
+    colA: text("col_a"),
+    colB: text("col_b"),
+  }, (t) => ([
+    primaryKey({ name: "optional_pk_name", columns: [t.colA, t.colB] }),
+  ]));
+  ```
+
+### 5. Foreign Keys (Database Constraints)
+
+Database-level foreign key constraints are defined to ensure referential integrity. Drizzle `relations` (for querying) are a separate concept and not used for defining these schema constraints in `[apps/site/src/lib/server/db/schema/index.ts](mdc:apps/site/src/lib/server/db/schema/index.ts)`.
+
+- **Inline `references()`**: For simple FKs, chained to the column definition.
+  ```typescript
+  // Assuming USERS table and ULIDAsUUID are defined
+  // import { USERS } from "./users-schema"; // Path to users table definition
+  // import { ULIDAsUUID } from "./path-to-ulid-helper";
+  // userUuid: ULIDAsUUID("user_uuid")
+  //   .references(() => USERS.userUuid, { onDelete: "cascade" })
+  //   .notNull(),
+  ```
+- **`foreignKey` Helper**: For more complex FKs, named constraints, or self-references, used in the table definition callback array.
+  ```typescript
+  import { pgTable, foreignKey, text } from "drizzle-orm/pg-core";
+  const commentsTable = pgTable("comments", { // tslint:disable-line
+    commentUuid: text("comment_uuid").primaryKey(),
+    parentCommentUuid: text("parent_comment_uuid"),
+  }, (t) => (([
+     foreignKey({
+      columns: [t.parentCommentUuid],
+      foreignColumns: [t.commentUuid], // Self-reference example
+      name: "explicit_fk_name", // Optional: for naming the constraint in the DB
+    }).onDelete("cascade"),
+  ])));
+  ```
+- **Actions**: `onDelete` and `onUpdate` actions (e.g., `"cascade"`, `"set null"`) are specified as needed.
+
+### 6. Indexes and Unique Constraints
+
+- **Indexes**: `index("idx_name").on(t.column, ...)` in the table definition callback array.
+- **Unique Constraints**:
+    - Single column: `.unique()` chained to the column definition.
+    - Multi-column: `unique("optional_unique_constraint_name").on(t.colA, t.colB, ...)` in the table definition callback array.
+
+### 7. Type Inference for Queries
+
+Drizzle's `.$inferSelect` is used to create TypeScript types for database rows, ensuring type safety in services and queries:
+
+```typescript
+// Assuming USERS table is defined
+// import { USERS } from "./users-schema";
+// export type DBUser = typeof USERS.$inferSelect;
+```
+
+### 8. Transactional Service Methods (Pattern)
+
+When a service method performs multiple database operations that must succeed or fail together, it should manage its own transaction if an external one is not provided. This ensures atomicity.
+
+```typescript
+// In a service class (e.g., BlogPostService)
+// ... imports Drizzle, logger, other services, DTOs, BLOG_POST_COMMENTS table ...
+
+async addComment(
+  params: { /* ... */ },
+  providedExecutor: Drizzle = this.db // Default to instance's Drizzle (write) connection
+): Promise<CommentDTO> { // Assuming CommentDTO is your return type
+  const logger = this.logger.child({ fn: "addComment", /* ... */ });
+
+  // Core logic encapsulated in an inner function that accepts an executor
+  const operation = async (executor: Drizzle): Promise<CommentDTO> => {
+    // 1. Call another service method, passing the executor
+    // Example: const textContent = await this.textService.createText({ /* ... */ }, executor);
+
+    // 2. Perform direct DB operation using the executor
+    // Example:
+    // const [dbComment] = await executor
+    //   .insert(BLOG_POST_COMMENTS) // Assuming BLOG_POST_COMMENTS is imported
+    //   .values({ /* ... textUuid: textContent.textId ... */ })
+    //   .returning();
+
+    // 3. Fetch related data, convert to DTO, etc.
+    // ... using the same executor for any read operations within the transaction scope ...
+    // Example: const author = await this.userService.getById(params.authorUserId, executor);
+
+    // if (!dbComment || !author /* || !textContent */) {
+    //   throw new Error("Failed to complete comment creation process.");
+    // }
+    // return this._toCommentDTO(dbComment, author, textContent); // Assuming _toCommentDTO exists
+    return {} as CommentDTO; // Placeholder
+  };
+
+  // If no external transaction (executor) was provided, create and manage one here
+  if (providedExecutor === this.db) {
+    logger.debug("No external transaction, creating new one for addComment.");
+    return this.db.transaction(async (tx) => {
+      return operation(tx); // Pass the transaction (tx) as the executor
+    });
+  } else {
+    // An external transaction executor was provided, use it directly
+    logger.debug("External transaction executor provided, using it for addComment.");
+    return operation(providedExecutor);
+  }
+}
+```
+
+**Key aspects of this pattern:**
+- Service methods that modify data accept an optional `providedExecutor: Drizzle = this.db`.
+- The core multi-step database logic is in an inner `async (executor: Drizzle) => ...` function.
+- This inner function uses the `executor` it receives for all its database calls, including calls to other services (which must also accept and use an executor).
+- The outer method checks if `providedExecutor === this.db`. If true, it wraps the call to the inner function in `this.db.transaction(async (tx) => operation(tx))`.
+- If an external executor is provided, the inner function is called with it directly, allowing participation in a larger transaction.
+- Read-only methods typically accept `executor: DrizzleRO = this.dbRO`.
+
+This structure provides flexibility and ensures atomicity for complex operations.

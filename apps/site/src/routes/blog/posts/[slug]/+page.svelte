@@ -1,10 +1,12 @@
 <script lang="ts">
-	import type { PageData } from './$types';
+	import type { PageData, ActionData } from './$types';
 	import BlogPost from '$lib/components/blog/BlogPost.svelte';
 	import { SITE_NAME } from '$lib/constants';
+	import BlogPostComments from './BlogPostComments.svelte'; // Import the new component
 
-	let { data }: { data: PageData } = $props();
-	const { blogPost } = data;
+	let { data, form }: { data: PageData, form: ActionData } = $props();
+	const { blogPost, commentsTree: initialCommentsTree } = data;
+	// Note: renamed data.commentsTree to initialCommentsTree for clarity when passing as a prop
 </script>
 
 <svelte:head>
@@ -22,6 +24,10 @@
 </svelte:head>
 
 <BlogPost blog={blogPost} />
+
+<hr class="my-8 border-gray-300" />
+
+<BlogPostComments initialComments={initialCommentsTree} form={form} />
 
 <hr class="my-4" />
 <p class="text-center italic">

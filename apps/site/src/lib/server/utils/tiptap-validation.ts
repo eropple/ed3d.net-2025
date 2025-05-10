@@ -4,9 +4,10 @@ import { Node as ProseMirrorNode } from "prosemirror-model";
 
 import { getPresetExtensions, type TipTapPresetKind } from "$lib/shared/tiptap-presets";
 
-interface ValidationSuccess {
+interface ValidationSuccess<T extends TipTapPresetKind> {
   isValid: true;
-  validatedJson: Record<string, unknown>;
+  presetKind: T;
+  jsonContent: ProseMirrorNode;
 }
 
 interface ValidationError {
@@ -15,7 +16,7 @@ interface ValidationError {
   details?: string; // For ProseMirrorError messages or other details
 }
 
-export type TipTapValidationResult = ValidationSuccess | ValidationError;
+export type TipTapValidationResult<T extends TipTapPresetKind> = ValidationSuccess<T> | ValidationError;
 
 /**
  * Validates a Tiptap JSON object against a specified preset's schema.
@@ -24,11 +25,11 @@ export type TipTapValidationResult = ValidationSuccess | ValidationError;
  * @param presetKind The kind of preset to validate against.
  * @returns A ValidationSuccess object with the validated JSON, or a ValidationError object.
  */
-export function validateTiptapJson(
+export function validateTiptapJson<T extends TipTapPresetKind>(
   logger: Logger,
   tiptapJson: Record<string, unknown>,
-  presetKind: TipTapPresetKind
-): TipTapValidationResult {
+  presetKind: T
+): TipTapValidationResult<T> {
   logger = logger.child({fn: "validateTiptapJson", presetKind, tiptapJsonCount: Object.keys(tiptapJson).length});
 
   logger.debug("Validating Tiptap JSON.");
@@ -48,7 +49,8 @@ export function validateTiptapJson(
 
     return {
       isValid: true,
-      validatedJson: prosemirrorDoc.toJSON() as Record<string, unknown>
+      presetKind,
+      jsonContent: prosemirrorDoc.toJSON()
     };
   } catch (err) {
     const error = err as Error;

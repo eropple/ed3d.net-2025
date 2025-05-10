@@ -16,6 +16,7 @@ import Text from "@tiptap/extension-text";
 import TextStyle from "@tiptap/extension-text-style";
 
 export type TipTapPresetKind = "comment";
+export const TIPTAP_PRESET_KINDS: ReadonlyArray<TipTapPresetKind> = Object.freeze(["comment"]);
 
 export interface TipTapPreset {
   extensions: AnyExtension[];

@@ -19,6 +19,7 @@ import { AuthService } from "../../auth/service.js";
 import { SessionService } from "../../auth/session/service.js";
 import { SocialIdentityService } from "../../auth/social-identity/service.js";
 import { BlogPostService } from "../../domain/blogs/service.js";
+import { TextService } from "../../domain/texts/service.js";
 import { UserService } from "../../domain/users/service.js";
 import { VaultKeyStore } from "../../vault/keystore.js";
 import { VaultService } from "../../vault/service.js";
@@ -69,6 +70,7 @@ export type AppSingletonCradle = {
 
   users: UserService;
   blogPosts: BlogPostService;
+  textService: TextService;
 
   // Sanity query runners
   sanityQueryCdn: ReturnType<typeof makeSafeQueryRunner>;
@@ -178,14 +180,18 @@ export async function configureBaseAwilixContainer(
         config.auth.atproto,
         config.urls,
       );
-    }).singleton(),
+    }),
 
     vault: asFunction(({ vaultKeyStore }: AppSingletonCradle) => {
       return new VaultService(vaultKeyStore);
-    }).singleton(),
+    }),
 
     users: asFunction(({ logger, db, dbRO }: AppRequestCradle) => {
       return new UserService(logger, db, dbRO);
+    }),
+
+    textService: asFunction(({ logger, db, dbRO }: AppSingletonCradle) => {
+      return new TextService(logger, db, dbRO);
     }),
 
     // Sanity query runners
@@ -228,7 +234,11 @@ export async function configureBaseAwilixContainer(
       sanityCdn,
       sanityDirect,
       sanityQueryCdn,
-      sanityQueryDirect
+      sanityQueryDirect,
+      textService,
+      users,
+      db,
+      dbRO
     }: AppRequestCradle) => {
       return new BlogPostService(
         logger,
@@ -236,7 +246,11 @@ export async function configureBaseAwilixContainer(
         sanityDirect,
         sanityQueryCdn,
         sanityQueryDirect,
-        config.sanity.content
+        config.sanity.content,
+        textService,
+        users,
+        db,
+        dbRO
       );
     }),
 
@@ -300,7 +314,7 @@ export async function configureBaseAwilixContainer(
         logger.child({ service: "email" }),
         config.emailDelivery
       );
-    }).singleton(),
+    }),
   });
 
   // we need to kick this forward to ensure the client is initialized
