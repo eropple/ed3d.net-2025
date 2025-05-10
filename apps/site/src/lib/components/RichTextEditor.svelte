@@ -5,7 +5,8 @@
 
   // --- Props ---
   export let mode: TipTapPresetKind;
-  export let content: Content = "";
+  export let content: Content = ""; // HTML content (can be string or JSON for initialization, becomes string for binding)
+  export let json: Record<string, any> | undefined = undefined; // ProseMirror JSON content (for binding)
 
   // --- Component State ---
   let editorInstance: Editor | null = null;
@@ -16,12 +17,11 @@
   let currentBlockType: 'paragraph' | 'codeBlock' | 'blockquote' | 'other' = 'paragraph'; // For the dropdown
 
   // Reactive update if 'content' prop changes from parent
-  $: if (editorInstance && typeof content === 'string' && content !== htmlOutput && !editorInstance.isFocused) {
-    editorInstance.commands.setContent(content, false);
-    htmlOutput = editorInstance.getHTML();
-  } else if (editorInstance && typeof content !== 'string' && !editorInstance.isFocused) {
-    editorInstance.commands.setContent(content, false);
-    htmlOutput = editorInstance.getHTML();
+  $: if (editorInstance && typeof content === 'string' && content !== editorInstance.getHTML() && !editorInstance.isFocused) {
+    editorInstance.commands.setContent(content, false); // This will trigger onUpdate
+    // htmlOutput and json will be updated by the onUpdate handler
+  } else if (editorInstance && typeof content !== 'string' && content !== editorInstance.getJSON() && !editorInstance.isFocused) { // If initial content is JSON
+    editorInstance.commands.setContent(content, false); // This will trigger onUpdate
   }
 
   onMount(() => {
@@ -32,13 +32,21 @@
       const tiptapEditor = new Editor({
         element: editorElement,
         extensions: extensions,
-        content: content,
+        content: content, // Initial content (can be HTML string or JSON object from prop)
         onUpdate: ({ editor: updatedEditor }) => {
           const currentHTML = updatedEditor.getHTML();
-          htmlOutput = currentHTML;
-          // Update the 'content' prop for bind:content to work
+          const currentJSON = updatedEditor.getJSON();
+
+          htmlOutput = currentHTML; // For the internal HTML tab view
+
+          // Update the parent's bound 'content' prop (will be HTML string)
           if (content !== currentHTML) {
             content = currentHTML;
+          }
+          // Update the parent's bound 'json' prop
+          // Simple stringify for comparison to avoid potential issues if Tiptap always returns new object instances
+          if (JSON.stringify(json) !== JSON.stringify(currentJSON)) {
+            json = currentJSON;
           }
         },
         onTransaction: ({ editor: trEditor }) => {
@@ -57,7 +65,16 @@
         }
       });
       editorInstance = tiptapEditor;
-      htmlOutput = editorInstance.getHTML();
+
+      // Initialize/update bound props after editor creation based on initial content
+      const currentHTMLInitial = editorInstance.getHTML();
+      const currentJSONInitial = editorInstance.getJSON();
+
+      if (content !== currentHTMLInitial) { // Ensures parent 'content' reflects actual HTML if initial was JSON
+        content = currentHTMLInitial;
+      }
+      json = currentJSONInitial; // Initialize parent 'json'
+      htmlOutput = currentHTMLInitial; // For internal HTML tab view
     }
 
     return () => {
