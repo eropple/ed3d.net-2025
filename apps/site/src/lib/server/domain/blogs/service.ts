@@ -315,13 +315,19 @@ export class BlogPostService {
       }
       const authorPublic = UserService.toPublic(authorPrivate);
 
+      const parentCommentUuid = params.parentCommentId ? CommentIds.toUUID(params.parentCommentId) : null;
+      logger.debug({
+        parentCommentId: params.parentCommentId,
+        parentCommentUuid: parentCommentUuid
+      }, "Parent ID processing for DB insert");
+
       const [dbComment] = await executor
         .insert(BLOG_POST_COMMENTS)
         .values({
           sanityBlogPostId: params.blogPostId,
           userUuid: UserIds.toUUID(params.authorUserId),
           textUuid: TextIds.toUUID(createdText.textId),
-          parentCommentUuid: params.parentCommentId ? CommentIds.toUUID(params.parentCommentId) : null,
+          parentCommentUuid: parentCommentUuid,
         })
         .returning();
 

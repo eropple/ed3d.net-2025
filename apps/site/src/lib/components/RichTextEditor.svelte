@@ -2,11 +2,13 @@
   import { onMount, onDestroy } from 'svelte';
   import { Editor, type Content, type AnyExtension } from '@tiptap/core';
   import { getPresetExtensions, type TipTapPresetKind } from '$lib/shared/tiptap-presets';
+  import { Placeholder } from '@tiptap/extension-placeholder';
 
   // --- Props ---
   export let mode: TipTapPresetKind;
   export let content: Content = ""; // HTML content (can be string or JSON for initialization, becomes string for binding)
   export let json: Record<string, any> | undefined = undefined; // ProseMirror JSON content (for binding)
+  export let placeholder: string | undefined = undefined;
 
   // --- Component State ---
   let editorInstance: Editor | null = null;
@@ -26,12 +28,17 @@
 
   onMount(() => {
     if (editorElement) {
-      const extensions = getPresetExtensions(mode);
-      activeExtensionNames = new Set(extensions.map(ext => ext.name)); // Store names of active extensions
+      const baseExtensions = getPresetExtensions(mode);
+      activeExtensionNames = new Set(baseExtensions.map(ext => ext.name)); // Store names of active extensions
+
+      const extensionsWithPlaceholder = [
+        ...baseExtensions,
+        ...(placeholder ? [Placeholder.configure({ placeholder })] : [])
+      ];
 
       const tiptapEditor = new Editor({
         element: editorElement,
-        extensions: extensions,
+        extensions: extensionsWithPlaceholder,
         content: content, // Initial content (can be HTML string or JSON object from prop)
         onUpdate: ({ editor: updatedEditor }) => {
           const currentHTML = updatedEditor.getHTML();
@@ -283,6 +290,7 @@
     bind:this={editorElement}
     class="tiptap-prose-editor-wrapper prose max-w-none p-2"
     style:display={currentView === 'editor' ? 'block' : 'none'}
+    data-placeholder={placeholder}
   >
     {#if currentView === 'editor' && !editorInstance}
       <p>Loading editor...</p>
@@ -348,6 +356,11 @@
     outline: none;
   }
 
+  /*
+    Tiptap's Placeholder extension adds its own ::before pseudo-element styling.
+    The global style below (often found in Tiptap examples) targets that.
+    Ensure this doesn't conflict with other global styles if you have them.
+  */
   :global(.ProseMirror p.is-editor-empty:first-child::before) {
     content: attr(data-placeholder);
     float: left;

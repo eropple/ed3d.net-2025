@@ -94,7 +94,7 @@ export const actions: Actions = {
     const logger = locals.logger.child({ fn: "/blog/posts/[slug]/+page.server.ts:actions:addComment", params });
     const formData = await request.formData();
     const commentJsonString = formData.get("comment_json_content") as string | null;
-    const parentCommentIdRich = formData.get("parent_comment_id") as string | null;
+    const parentCommentId = formData.get("parent_comment_id") ? CommentIds.toRichId(formData.get("parent_comment_id") as string) : null;
 
     // Helper function to create consistent failure responses
     // It captures parentCommentIdRich in its closure.
@@ -102,7 +102,7 @@ export const actions: Actions = {
       return fail(status, {
         error: errorMsg,
         details,
-        parentCommentIdAttempted: parentCommentIdRich || null
+        parentCommentIdAttempted: parentCommentId || null
       });
     };
 
@@ -137,16 +137,6 @@ export const actions: Actions = {
       return createFailResponse(400, "Invalid comment content format.", "JSON parsing failed.");
     }
 
-    let parentCommentIdDomain: CommentId | undefined = undefined;
-    if (parentCommentIdRich) {
-      try {
-        parentCommentIdDomain = CommentIds.toRichId(parentCommentIdRich);
-      } catch (e) {
-        logger.warn({ parentCommentIdRich, error: e }, "Invalid parent_comment_id format provided.");
-        return createFailResponse(400, "Invalid parent comment ID format.", (e as Error).message);
-      }
-    }
-
     const presetToValidate: TipTapPresetKind = "comment";
     const validationResult = validateTiptapJson(logger, parsedCommentJson, presetToValidate);
 
@@ -160,6 +150,7 @@ export const actions: Actions = {
         blogPostId: blogPostId,
         authorUserId: authorUserId,
         textContent: validationResult,
+        parentCommentId: parentCommentId ?? undefined
       });
 
       logger.info({ commentId: newComment.commentId, blogPostId, parentCommentId: newComment.parentCommentId }, "Successfully added new comment via action. Now fetching updated comment tree.");
