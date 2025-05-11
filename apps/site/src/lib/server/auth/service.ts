@@ -1,6 +1,6 @@
 import crypto from "crypto";
 
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, isNull, desc, gt } from "drizzle-orm";
 import ms from "ms";
 import type { Logger } from "pino";
 import type { DeepReadonly } from "utility-types";
@@ -20,6 +20,14 @@ import type { AuthConfig } from "./config.js";
 import type { SessionService } from "./session/service.js";
 import type { AuthorizationData } from "./social-identity/service";
 import { type SocialIdentityService } from "./social-identity/service.js";
+
+// Define custom error for rate limiting
+export class RateLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RateLimitError";
+  }
+}
 
 export class AuthService {
   private readonly logger: Logger;
@@ -65,35 +73,53 @@ export class AuthService {
 
   /**
    * Handle social auth callback
-   * Returns user and the verified state data.
+   * Returns user, the verified state data, and an optional flash message.
    */
   async handleSocialCallback(
     provider: SocialOAuth2ProviderKind,
     code: string,
     stateToken: string
-  ): Promise<{ user: UserPrivate; state: AuthorizationData }> {
+  ): Promise<{
+    user: UserPrivate;
+    state: AuthorizationData;
+    flash?: App.PageData["flash"];
+  }> {
     const logger = this.logger.child({ fn: "handleSocialCallback", provider });
 
     try {
-      // Process the callback - this now returns { user, state }
-      const { user, state } = await this.socialIdentityService.handleCallback(
+      const { user, state, needsVerification } = await this.socialIdentityService.handleCallback(
         provider,
         code,
         stateToken
       );
 
-      // We no longer need to explicitly verify the email here based on provider.
-      // The verification status comes from the NormalizedUserInfo within handleCallback.
-      // The upsertSocialIdentity/createUser logic within handleCallback should use user.emailVerified.
+      let flashMessage: App.PageData["flash"] | undefined = undefined;
 
-      // Remove or comment out provider-specific verification:
-      // if (provider === "google" && user.email && !user.emailVerified) {
-      //   await this.verifyUserEmail(user.userId);
-      // }
-
-      return { user, state };
+      if (needsVerification) {
+        logger.info({ userId: user.userId, provider }, "Social login requires email verification. Requesting verification link and preparing flash message.");
+        try {
+          // Attempt to send the verification email.
+          // Not awaiting directly to prevent blocking the login redirect.
+          // Errors are logged, but don't halt the login.
+          this.requestVerifyLink(user.userId, user.email).catch(err => {
+            logger.error({ err, userId: user.userId }, "Error sending verification link after social login");
+          });
+          // Prepare flash message for the redirect
+          flashMessage = { type: "success", message: "Login successful. Please check your email to verify your address." };
+        } catch (err) {
+            // This catch is more for synchronous errors if requestVerifyLink were to throw them directly
+            // before returning a promise, which is unlikely for an async function.
+            logger.error({ err, userId: user.userId }, "Unexpected synchronous error requesting verification link after social login");
+            // Potentially set an error flash message here if it makes sense,
+            // though the primary error would likely be from requestVerifyLink's promise.
+        }
+      }
+      // Return the user, state, and potentially the flash message
+      return { user, state, flash: flashMessage };
     } catch (err) {
       logger.error({ err, provider }, "Error handling social callback in auth service");
+      // Re-throw the error. The calling route handler will decide how to redirect
+      // and whether to set an error flash message.
       throw err;
     }
   }
@@ -455,6 +481,7 @@ export class AuthService {
     email?: string
   ): Promise<string> {
     const userId = typeof userOrUserId === "string" ? userOrUserId : userOrUserId.userId;
+    const userUuid = UserIds.toUUID(userId);
     const logger = this.logger.child({ fn: "requestVerifyLink", userId });
 
     return await this.db.transaction(async (tx) => {
@@ -462,7 +489,7 @@ export class AuthService {
       const user = await this.userService.getById(userId, tx);
       if (!user) {
         logger.error("User not found");
-        throw new Error("User not found");
+        throw new Error("User not found"); // Or a more specific UserNotFoundError
       }
 
       // Determine which email to verify
@@ -473,11 +500,31 @@ export class AuthService {
         const existingUser = await this.userService.getByEmail(email, tx);
         if (existingUser && existingUser.userId !== userId) {
           logger.info({ existingUserId: existingUser.userId }, "Email address is already in use");
-          throw new Error("Email address is already in use");
+          throw new Error("Email address is already in use"); // Or a specific EmailInUseError
         }
       }
 
-      const userUuid = UserIds.toUUID(userId);
+      // Rate Limiting Check
+      const thirtyMinutesAgo = new Date(Date.now() - ms("30m"));
+      const [recentLink] = await tx
+        .select({ createdAt: MAGIC_LINKS.createdAt })
+        .from(MAGIC_LINKS)
+        .where(
+          and(
+            eq(MAGIC_LINKS.userUuid, userUuid),
+            eq(MAGIC_LINKS.type, "verify"),
+            gt(MAGIC_LINKS.createdAt, thirtyMinutesAgo) // Check if created in the last 30 mins
+          )
+        )
+        .orderBy(desc(MAGIC_LINKS.createdAt))
+        .limit(1);
+
+      if (recentLink) {
+        logger.info({ userId, lastRequestTime: recentLink.createdAt }, "Verification email requested too soon after a previous one.");
+        // Throw the custom error
+        throw new RateLimitError("Please wait a little while before requesting another verification email.");
+      }
+
       return this._createMagicLink(verifyEmail, "verify", userUuid, undefined, tx);
     });
   }

@@ -2,11 +2,16 @@
 	import type { PageData, ActionData } from './$types';
 	import BlogPost from '$lib/components/blog/BlogPost.svelte';
 	import { SITE_NAME } from '$lib/constants';
-	import BlogPostComments from './BlogPostComments.svelte'; // Import the new component
+	import BlogPostComments from './BlogPostComments.svelte';
 
 	let { data, form }: { data: PageData, form: ActionData } = $props();
-	const { blogPost, commentsTree: initialCommentsTree } = data;
-	// Note: renamed data.commentsTree to initialCommentsTree for clarity when passing as a prop
+	const { blogPost, commentsTree: initialCommentsTree, isStaff, user } = data;
+
+	console.log(user);
+
+	const canModerate = $derived(user?.grants?.comments?.moderate ?? false);
+	const canPost = $derived(user?.grants?.comments?.post ?? false);
+	const isLoggedInButEmailNotVerified = $derived(!!user && !user.emailVerified);
 </script>
 
 <svelte:head>
@@ -27,7 +32,14 @@
 
 <hr class="my-8 border-gray-300" />
 
-<BlogPostComments initialComments={initialCommentsTree} form={form} />
+<BlogPostComments
+	initialComments={initialCommentsTree}
+	{form}
+	{isStaff}
+	{canModerate}
+	{canPost}
+	{isLoggedInButEmailNotVerified}
+/>
 
 <hr class="my-4" />
 <p class="text-center italic">

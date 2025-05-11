@@ -3,6 +3,9 @@ import { redirect as flashRedirect } from "sveltekit-flash-message/server";
 
 import type { Actions } from "./$types";
 
+import { RateLimitError } from "$lib/server/auth/service";
+
+
 // Note: No `load` function here is needed for now, as the user data
 // comes from the parent layout's load function (`/profile/+layout.server.ts`).
 
@@ -82,6 +85,40 @@ export const actions: Actions = {
 				success: false,
 				message: message,
 				username: trimmedUsername
+			});
+		}
+	},
+
+	// Resend verification email action
+	resendVerificationEmail: async ({ locals }) => {
+		const logger = locals.logger.child({ action: "/profile/info:resendVerificationEmail" });
+		if (!locals.user) {
+			return fail(401, { formName: "resendVerification", success: false, message: "Unauthorized" });
+		}
+
+		try {
+			await locals.deps.authService.requestVerifyLink(locals.user.userId);
+			logger.info({ userId: locals.user.userId }, "Verification email resent successfully.");
+			return {
+				success: true,
+				formName: "resendVerification",
+				message: "Verification email resent. Please check your inbox."
+			};
+		} catch (error) {
+			if (error instanceof RateLimitError) {
+				logger.warn({ err: error, userId: locals.user.userId }, "Rate limit hit for resending verification email.");
+				return fail(429, { // HTTP 429 Too Many Requests
+					formName: "resendVerification",
+					success: false,
+					message: error.message // Use the message from RateLimitError
+				});
+			}
+			logger.error({ err: error, userId: locals.user.userId }, "Error resending verification email.");
+			const message = error instanceof Error ? error.message : "An unknown error occurred.";
+			return fail(500, {
+				formName: "resendVerification",
+				success: false,
+				message: message
 			});
 		}
 	}

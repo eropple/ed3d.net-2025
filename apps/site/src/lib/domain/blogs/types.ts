@@ -197,12 +197,28 @@ export const BlogPostCommentType = Type.Object({
   parentCommentId: Type.Optional(CommentIds.TRichId),
   createdAt: Type.Date(),
   updatedAt: Type.Optional(Type.Date()),
+  hiddenAt: Type.Optional(Type.Date()),
 });
 export type BlogPostCommentType = Static<typeof BlogPostCommentType>;
 
+export const HiddenCommentPlaceholderType = Type.Object({
+  __type: Type.Literal("HiddenCommentPlaceholder"),
+  commentId: CommentIds.TRichId,
+  createdAt: Type.Date(),
+  message: Type.String(),
+});
+export type HiddenCommentPlaceholderType = Static<typeof HiddenCommentPlaceholderType>;
+
+// Union type for the value within a comment node
+export const BlogPostCommentNodeValue = Type.Union([
+  BlogPostCommentType,
+  HiddenCommentPlaceholderType
+]);
+export type BlogPostCommentNodeValue = Static<typeof BlogPostCommentNodeValue>;
+
 export const BlogPostCommentNode = Type.Recursive(Self => Type.Object({
   __type: Type.Literal("BlogPostCommentNode"),
-  value: BlogPostCommentType,
+  value: BlogPostCommentNodeValue,
   children: Type.Array(Self),
 }));
 export type BlogPostCommentNode = Static<typeof BlogPostCommentNode>;

@@ -32,14 +32,15 @@ export const GET: RequestHandler = async ({ params, url, locals, cookies }) => {
 
   if (!code || !stateToken) {
     logger.error({ provider }, "Missing code or state parameter in social callback");
-    throw error(400, "Invalid callback parameters");
+    // Consider using flashRedirect for user-facing errors on /login page
+    throw flashRedirect("/login", { type: "error", message: "Invalid callback parameters. Please try logging in again." }, cookies);
   }
 
   let validatedRedirectPath = fallbackRedirectPath; // Initialize with fallback
 
   try {
-    // Handle the callback - this now returns { user, state }
-    const { user, state } = await locals.deps.authService.handleSocialCallback(
+    // Handle the callback - this now returns { user, state, flash }
+    const { user, state, flash: successFlashMessage } = await locals.deps.authService.handleSocialCallback(
       provider,
       code,
       stateToken
@@ -59,36 +60,35 @@ export const GET: RequestHandler = async ({ params, url, locals, cookies }) => {
     // Set the session cookie
     setSessionCookie(logger, cookies, token, expiresAt, locals.config.auth);
 
-    // Redirect using the validated path
-    logger.info({ userId: user.userId, redirectPath: validatedRedirectPath }, "Social login successful, redirecting.");
-    throw redirect(302, validatedRedirectPath);
+    logger.info({ userId: user.userId, redirectPath: validatedRedirectPath, hasFlash: !!successFlashMessage }, "Social login successful, redirecting.");
+    // Use flashRedirect, passing the successFlashMessage (which might be undefined)
+    throw flashRedirect(validatedRedirectPath, successFlashMessage, cookies);
 
   } catch (err) {
-
+    // Ensure redirects from authService (if any in future) or flashRedirects are re-thrown
     if (isRedirect(err)) {
       throw err;
     }
+    // SvelteKit HTTP errors should also be re-thrown
     if (isHttpError(err)) {
 			throw err;
 		}
 
-    // Check for unique constraint violation
+    // Check for unique constraint violation (social account linked to other user)
     if (isDatabaseError(err) && err.code === "23505") {
       logger.warn({ provider, err }, "Social account already linked to another user.");
-      // Use flashRedirect for error case
       const providerName = provider.charAt(0).toUpperCase() + provider.slice(1);
-      // Note: We don't have the validated state here in the catch block easily.
-      // Redirecting to fallback path for this specific error case might be acceptable.
-      // Or we could decrypt state again here, but that adds complexity.
+      // Redirect to login or a more specific error page if preferred
       throw flashRedirect(
-        fallbackRedirectPath, // Using fallback on unique constraint error for simplicity
+        "/login", // Redirecting to login on this specific error
         { type: "error", message: `This ${providerName} account is already linked to another user.` },
         cookies
       );
     }
 
-    // Handle other errors
+    // Handle other generic errors
     logger.error({ err, provider }, "Error handling social callback");
-    throw error(500, "Authentication failed. Please try again.");
+    // Redirect to login page with a generic error message
+    throw flashRedirect("/login", { type: "error", message: "Authentication failed. Please try again later." }, cookies);
   }
 };

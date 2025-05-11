@@ -70,18 +70,12 @@ export class DiscordProvider extends OAuth2Provider {
       ? `https://cdn.discordapp.com/avatars/${userInfo.id}/${userInfo.avatar}.png`
       : undefined;
 
-    // IMPORTANT: Check if Discord has verified the user's email
-    const isEmailVerified = userInfo.verified === true;
-    if (userInfo.email && !isEmailVerified) {
-      this.logger.warn({ userId: userInfo.id }, "Discord email is present but not verified by Discord.");
-    }
-
     const normalized: NormalizedUserInfo = {
       id: userInfo.id,
       username: userInfo.username,
       displayName: displayName,
-      email: userInfo.email || undefined,
-      emailVerified: isEmailVerified && !!userInfo.email,
+      email: userInfo.email || undefined, // we don't trust Discord email verification
+      emailVerified: false,
       avatarUrl: avatarUrl,
       profileUrl: undefined,
     };

@@ -71,6 +71,8 @@ export const USERS = pgTable("users", {
    */
   tokenSalt: integer().notNull().default(1),
 
+  isStaff: boolean("is_staff").notNull().default(false),
+
   ...TIMESTAMPS_MIXIN,
 });
 export type DBUser = typeof USERS.$inferSelect;
@@ -262,6 +264,8 @@ export const BLOG_POST_COMMENTS = pgTable("blog_post_comments", {
   textUuid: ULIDAsUUID("text_uuid")
     .notNull()
     .unique(),
+
+  hiddenAt: timestamp("hidden_at", { withTimezone: true, mode: "date" }),
 
   ...TIMESTAMPS_MIXIN,
 }, (t) => [{

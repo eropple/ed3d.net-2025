@@ -5,7 +5,7 @@ import type { Logger } from "pino";
 import type { BlogContent } from "../../../../lib/server/domain/blogs/projections.js";
 import type { TipTapPresetKind } from "../../../../lib/shared/tiptap-presets.js";
 
-import type { PageServerLoad } from "./$types";
+import type { PageServerLoad, ActionData } from "./$types";
 
 import type { BlogPostCommentTree, BlogPostCommentType as BlogPostCommentTypeDTO } from "$lib/domain/blogs/types.js";
 import { CommentIds, type CommentId } from "$lib/domain/comments/ids.js";
@@ -18,14 +18,14 @@ async function _fetchBlogPostComments(
   blogPostService: BlogPostService,
   blogPostId: string,
   logger: Logger,
+  isRequestingUserStaff: boolean,
 ): Promise<BlogPostCommentTree> {
-  logger.debug({ blogPostId }, "Fetching comments for blog post via _fetchBlogPostComments");
+  logger.debug({ blogPostId, isRequestingUserStaff }, "Fetching comments for blog post via _fetchBlogPostComments");
   try {
-    const commentsTree = await blogPostService.getCommentsForPost(blogPostId);
+    const commentsTree = await blogPostService.getCommentsForPost(blogPostId, isRequestingUserStaff);
     return commentsTree;
   } catch (err) {
     logger.error({ err, blogPostId }, "Error fetching blog post comments");
-    // Return an empty tree or re-throw, depending on desired error handling for comments
     return { __type: "BlogPostCommentTree", children: [] };
   }
 }
@@ -49,11 +49,12 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 
   logger.debug({ slug }, "Blog post found");
 
-  const commentsTree = await _fetchBlogPostComments(locals.deps.blogPosts, blogPost.id, logger);
+  const isStaff = locals.user?.grants.isStaff ?? false;
+
+  const commentsTree = await _fetchBlogPostComments(locals.deps.blogPosts, blogPost.id, logger, isStaff);
 
   const imageUrlsByKey: Record<string, string> = {};
 
-  // TODO: this cast is not great. I'm not sure how to prove it's OK though.
   for (const item of blogPost.body as BlogContent["body"]) {
     if (item._type === "imageWithAlt" && item.image) {
       imageUrlsByKey[item._key] = item.image.url!;
@@ -64,7 +65,8 @@ export const load: PageServerLoad = async ({ locals, params }) => {
     slug,
     blogPost,
     commentsTree,
-    imageUrlsByKey
+    imageUrlsByKey,
+    isStaff,
   };
 };
 
@@ -74,19 +76,21 @@ export const actions: Actions = {
 
     if (!params.slug) {
       logger.warn({ params }, "No slug provided");
-      throw error(400, "No slug provided");
+      return fail(400, { error: "No slug provided" });
     }
 
     const blogPost = await locals.deps.blogPosts.getBlogPost({ slug: params.slug });
     if (!blogPost) {
       logger.warn({ slug: params.slug }, "Blog post not found during refreshComments action");
-      throw error(404, "Blog post not found");
+      return fail(404, { error: "Blog post not found" });
     }
 
-    const commentsTree = await _fetchBlogPostComments(locals.deps.blogPosts, blogPost.id, logger);
+    const isStaff = locals.user?.grants.isStaff ?? false;
+    const commentsTree = await _fetchBlogPostComments(locals.deps.blogPosts, blogPost.id, logger, isStaff);
 
     return {
       refreshedComments: commentsTree,
+      isStaff,
     };
   },
 
@@ -94,15 +98,17 @@ export const actions: Actions = {
     const logger = locals.logger.child({ fn: "/blog/posts/[slug]/+page.server.ts:actions:addComment", params });
     const formData = await request.formData();
     const commentJsonString = formData.get("comment_json_content") as string | null;
-    const parentCommentId = formData.get("parent_comment_id") ? CommentIds.toRichId(formData.get("parent_comment_id") as string) : null;
+    const parentCommentIdString = formData.get("parent_comment_id") as string | null;
+    const parentCommentId = parentCommentIdString ? CommentIds.toRichId(parentCommentIdString) : null;
 
-    // Helper function to create consistent failure responses
-    // It captures parentCommentIdRich in its closure.
+    const isStaff = locals.user?.grants.isStaff ?? false;
+
     const createFailResponse = (status: number, errorMsg: string, details?: string) => {
       return fail(status, {
         error: errorMsg,
         details,
-        parentCommentIdAttempted: parentCommentId || null
+        parentCommentIdAttempted: parentCommentId || null,
+        isStaff,
       });
     };
 
@@ -114,6 +120,10 @@ export const actions: Actions = {
     if (!locals.user || !locals.user.userId) {
       logger.warn("Unauthenticated user attempted to add comment.");
       return createFailResponse(401, "You must be logged in to comment.");
+    }
+    if (!locals.user.grants.comments.post) {
+        logger.warn({ userId: locals.user.userId }, "User not permitted to post comments.");
+        return createFailResponse(403, "You are not permitted to post comments at this time.");
     }
     const authorUserId = locals.user.userId;
 
@@ -155,17 +165,96 @@ export const actions: Actions = {
 
       logger.info({ commentId: newComment.commentId, blogPostId, parentCommentId: newComment.parentCommentId }, "Successfully added new comment via action. Now fetching updated comment tree.");
 
-      const updatedCommentsTree = await _fetchBlogPostComments(locals.deps.blogPosts, blogPostId, logger);
+      const updatedCommentsTree = await _fetchBlogPostComments(locals.deps.blogPosts, blogPostId, logger, isStaff);
 
       return {
         success: true,
         newComment: newComment as BlogPostCommentTypeDTO,
         refreshedComments: updatedCommentsTree,
+        isStaff,
       };
     } catch (e) {
       const serviceError = e as Error;
       logger.error(serviceError, "Error calling blogPostService.addComment");
       return createFailResponse(500, serviceError.message || "Could not save comment. Please try again.", serviceError.stack);
+    }
+  },
+
+  toggleCommentVisibility: async ({ locals, params, request }) => {
+    const logger = locals.logger.child({ fn: "/blog/posts/[slug]/+page.server.ts:actions:toggleCommentVisibility", params });
+    const formData = await request.formData();
+
+    const commentIdString = formData.get("commentId") as string | null;
+    const hideStateString = formData.get("hideState") as string | null;
+
+    const isStaffCurrentUser = locals.user?.grants.isStaff ?? false;
+
+    const createToggleFailResponse = (status: number, errorMsg: string, details?: string) => {
+      return fail(status, {
+        error: errorMsg,
+        details,
+        commentIdAttempted: commentIdString,
+        isStaff: isStaffCurrentUser,
+      });
+    };
+
+    if (!params.slug) {
+      logger.warn("No slug provided for toggleCommentVisibility.");
+      return createToggleFailResponse(400, "Cannot identify blog post.");
+    }
+
+    if (!locals.user || !locals.user.userId) {
+      logger.warn("Unauthenticated user attempted to toggle comment visibility.");
+      return createToggleFailResponse(401, "You must be logged in.");
+    }
+
+    if (!locals.user.grants.comments.moderate) {
+      logger.warn({ userId: locals.user.userId }, "User not authorized to moderate comments.");
+      return createToggleFailResponse(403, "You are not authorized to perform this action.");
+    }
+
+    if (!commentIdString || !hideStateString) {
+        logger.warn({ commentIdString, hideStateString }, "Missing commentId or hideState for toggleCommentVisibility.");
+        return createToggleFailResponse(400, "Missing required parameters to change comment visibility.");
+    }
+
+    const commentId = CommentIds.toRichId(commentIdString);
+    const newHideState = hideStateString === "true";
+
+    const blogPost = await locals.deps.blogPosts.getBlogPost({ slug: params.slug });
+    if (!blogPost) {
+      logger.warn({ slug: params.slug }, "Blog post not found during toggleCommentVisibility action");
+      return createToggleFailResponse(404, "Blog post not found.");
+    }
+
+    try {
+      const updatedComment = await locals.deps.blogPosts.setCommentHiddenStatus(
+        commentId,
+        newHideState,
+        locals.user.userId
+      );
+
+      if (!updatedComment) {
+        logger.warn({ commentId }, "Comment not found or failed to update hidden status.");
+        return createToggleFailResponse(404, "Comment not found or could not be updated.");
+      }
+
+      logger.info({ commentId: updatedComment.commentId, hidden: updatedComment.hiddenAt }, "Successfully toggled comment visibility. Fetching updated tree.");
+
+      const commentsTree = await _fetchBlogPostComments(locals.deps.blogPosts, blogPost.id, logger, isStaffCurrentUser);
+
+      return {
+        success: true,
+        toggledCommentId: updatedComment.commentId,
+        newHiddenState: !!updatedComment.hiddenAt,
+        refreshedComments: commentsTree,
+        isStaff: isStaffCurrentUser,
+      };
+
+    } catch (e) {
+      const serviceError = e as Error;
+      logger.error(serviceError, "Error calling blogPostService.setCommentHiddenStatus");
+      return createToggleFailResponse(500, serviceError.message || "Could not update comment visibility. Please try again.", serviceError.stack);
     }
   }
 };

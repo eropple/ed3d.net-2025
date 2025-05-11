@@ -20,7 +20,6 @@ export const SiteGrants = Type.Object({
   __type: Type.Literal("SiteGrants"),
 
   isStaff: Type.Boolean(),
-  isAdmin: Type.Boolean(),
 
   comments: Type.Object({
     post: Type.Boolean(),

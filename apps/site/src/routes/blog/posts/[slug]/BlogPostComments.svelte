@@ -1,14 +1,21 @@
 <script lang="ts">
 	import type { ActionData } from './$types';
 	import { enhance } from '$app/forms';
-	import type { BlogPostCommentTree, BlogPostCommentNode, BlogPostCommentType } from '$lib/domain/blogs/types';
+	import type { BlogPostCommentTree, BlogPostCommentNode, BlogPostCommentType, HiddenCommentPlaceholderType, BlogPostCommentNodeValue } from '$lib/domain/blogs/types';
 	import CommentNodeDisplay from './CommentNodeDisplay.svelte';
 	import RichTextEditor from '$lib/components/RichTextEditor.svelte';
 	import { browser } from '$app/environment';
 	import { getCookie, setCookie } from '$lib/client/cookies';
 
-	// Props: initial comments tree and the form action data from the page
-	let { initialComments, form }: { initialComments: BlogPostCommentTree, form: ActionData } = $props();
+	// Props: initial comments tree, form action data, isStaff status, and specific grants
+	let { initialComments, form, isStaff, canModerate, canPost, isLoggedInButEmailNotVerified }: {
+		initialComments: BlogPostCommentTree,
+		form: ActionData,
+		isStaff: boolean,
+		canModerate: boolean,
+		canPost: boolean,
+		isLoggedInButEmailNotVerified: boolean
+	} = $props();
 
 	// State for the new top-level comment editor
 	let rawCommentsTree = $state(initialComments);
@@ -121,37 +128,47 @@
 </script>
 
 <section aria-labelledby="comments-heading" class="space-y-6">
-	<div>
-		<h3 class="text-xl font-semibold mb-3">Add a Comment</h3>
-		<form method="POST" action="?/addComment" use:enhance class="space-y-3">
-			<div>
-				<RichTextEditor
-					mode={"comment"}
-					bind:json={newCommentJson}
-					bind:content={newCommentHtml}
-					placeholder="Write a new comment..."
-				/>
-				{#if newCommentJson}
-					<input type="hidden" name="comment_json_content" value={JSON.stringify(newCommentJson)} />
+	{#if canPost}
+		<div>
+			<h3 class="text-xl font-semibold mb-3">Add a Comment</h3>
+			<form method="POST" action="?/addComment" use:enhance class="space-y-3">
+				<div>
+					<RichTextEditor
+						mode={"comment"}
+						bind:json={newCommentJson}
+						bind:content={newCommentHtml}
+						placeholder="Write a new comment..."
+					/>
+					{#if newCommentJson}
+						<input type="hidden" name="comment_json_content" value={JSON.stringify(newCommentJson)} />
+					{/if}
+				</div>
+				<button
+					type="submit"
+					class="px-4 py-2 bg-primary text-white rounded hover:bg-less-dark disabled:opacity-50"
+					disabled={!newCommentJson || Object.keys(newCommentJson).length === 0}
+				>
+					Post Comment
+				</button>
+				{#if submissionError}
+					<p class="text-sm text-error mt-1">{submissionError}</p>
 				{/if}
-			</div>
-			<button
-				type="submit"
-				class="px-4 py-2 bg-primary text-white rounded hover:bg-less-dark disabled:opacity-50"
-				disabled={!newCommentJson || Object.keys(newCommentJson).length === 0}
-			>
-				Post Comment
-			</button>
-			{#if submissionError}
-				<p class="text-sm text-error mt-1">{submissionError}</p>
-			{/if}
-			{#if showSuccessMessage}
-				<p class="text-sm text-green-600 mt-1">Comment posted successfully!</p>
-			{/if}
-		</form>
-	</div>
-
-	<hr />
+				{#if showSuccessMessage}
+					<p class="text-sm text-green-600 mt-1">Comment posted successfully!</p>
+				{/if}
+			</form>
+		</div>
+		<hr />
+	{:else if isLoggedInButEmailNotVerified}
+		<div class="p-4 text-sm text-orange-700 bg-orange-100 border-l-4 border-orange-500 rounded-md">
+			<p>Please verify your email address to post comments. Check your inbox for a verification link.</p>
+		</div>
+		{#if commentsTree.children.length > 0} <hr /> {/if}
+	{:else if !isStaff && !canPost && commentsTree.children.length === 0}
+		<!-- nothing -->
+	{:else if commentsTree.children.length > 0}
+		<hr />
+	{/if}
 
 	<div class="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 space-y-3 sm:space-y-0">
 		<h2 id="comments-heading" class="text-2xl font-semibold">
@@ -183,10 +200,18 @@
 	{#if commentsTree && commentsTree.children.length > 0}
 		<div class="space-y-4">
 			{#each commentsTree.children as commentNode (commentNode.value.commentId)}
-				<CommentNodeDisplay node={commentNode} form={form} />
+				<CommentNodeDisplay node={commentNode} {form} {isStaff} {canModerate} {canPost} {isLoggedInButEmailNotVerified} />
 			{/each}
 		</div>
 	{:else}
-		<p>No comments yet. Be the first to comment!</p>
+		<p>
+			{#if canPost}
+				No comments yet. Say your piece if you'd like.
+			{:else if isLoggedInButEmailNotVerified}
+				No comments yet.
+			{:else}
+				No comments yet. You'll need to log in to comment.
+			{/if}
+		</p>
 	{/if}
 </section>

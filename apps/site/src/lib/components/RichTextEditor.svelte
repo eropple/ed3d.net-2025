@@ -288,7 +288,7 @@
 
   <div
     bind:this={editorElement}
-    class="tiptap-prose-editor-wrapper prose max-w-none p-2"
+    class="tiptap-prose-editor-wrapper prose max-w-none px-2 pb-1"
     style:display={currentView === 'editor' ? 'block' : 'none'}
     data-placeholder={placeholder}
   >
@@ -352,7 +352,7 @@
 
   /* svelte-ignore css_unused_selector */
   .tiptap-prose-editor-wrapper.ProseMirror {
-    min-height: 150px;
+    min-height: 100px;
     outline: none;
   }
 
@@ -367,6 +367,15 @@
     color: #adb5bd;
     pointer-events: none;
     height: 0;
+  }
+
+  /*
+    Ensure the paragraph holding the placeholder doesn't add its own margin
+    beyond the wrapper's padding when the editor is empty.
+  */
+  :global(.ProseMirror p.is-editor-empty:first-child) {
+    margin-block-start: 0;
+    margin-block-end: 0;
   }
 
   .html-output {

@@ -17,6 +17,8 @@ import type {
   BlogPostCommentType as BlogPostCommentTypeDTO,
   BlogPostCommentNode,
   BlogPostCommentTree,
+  HiddenCommentPlaceholderType,
+  BlogPostCommentNodeValue
 } from "$lib/domain/blogs/types.js";
 import { CommentIds, type CommentId } from "$lib/domain/comments/ids.js";
 import { type TextContentType } from "$lib/domain/texts/types.js";
@@ -266,6 +268,10 @@ export class BlogPostService {
     author: UserPublic,
     textContent: TextContentType
   ): Promise<BlogPostCommentTypeDTO> {
+    if (!dbComment.createdAt) {
+      // This should ideally not happen if data is consistent
+      this.logger.error({ dbComment }, "DBBlogPostComment missing createdAt, falling back to current date");
+    }
     return {
       __type: "BlogPostComment",
       commentId: CommentIds.toRichId(dbComment.commentUuid),
@@ -273,8 +279,9 @@ export class BlogPostService {
       author: author,
       textContent: textContent,
       parentCommentId: dbComment.parentCommentUuid ? CommentIds.toRichId(dbComment.parentCommentUuid) : undefined,
-      createdAt: dbComment.createdAt,
-      updatedAt: dbComment.updatedAt ?? undefined,
+      createdAt: dbComment.createdAt || new Date(), // Ensure createdAt is a Date
+      updatedAt: dbComment.updatedAt || undefined,
+      hiddenAt: dbComment.hiddenAt || undefined, // Add hiddenAt
     };
   }
 
@@ -298,144 +305,226 @@ export class BlogPostService {
     });
 
     const operation = async (executor: Drizzle): Promise<BlogPostCommentTypeDTO> => {
-      const createdText = await this.textService.createText(
-        params.textContent,
-        executor
-      );
+      // 1. Create the text content for the comment
+      const textContent = await this.textService.createText(params.textContent, executor);
 
-      if (!createdText) {
-        logger.error("Text creation returned unexpectedly undefined.");
-        throw new Error("Failed to create text content for comment.");
+      if (!textContent) {
+        logger.error("Failed to create text content for comment.");
+        throw new Error("Could not save comment content.");
       }
 
-      const authorPrivate = await this.userService.getById(params.authorUserId, executor);
-      if (!authorPrivate) {
-        logger.error({ authorUserId: params.authorUserId }, "Author not found.");
-        throw new Error("Author not found.");
-      }
-      const authorPublic = UserService.toPublic(authorPrivate);
-
-      const parentCommentUuid = params.parentCommentId ? CommentIds.toUUID(params.parentCommentId) : null;
-      logger.debug({
-        parentCommentId: params.parentCommentId,
-        parentCommentUuid: parentCommentUuid
-      }, "Parent ID processing for DB insert");
-
+      // 2. Insert the comment into the database
       const [dbComment] = await executor
         .insert(BLOG_POST_COMMENTS)
         .values({
           sanityBlogPostId: params.blogPostId,
           userUuid: UserIds.toUUID(params.authorUserId),
-          textUuid: TextIds.toUUID(createdText.textId),
-          parentCommentUuid: parentCommentUuid,
+          textUuid: TextIds.toUUID(textContent.textId),
+          parentCommentUuid: params.parentCommentId ? CommentIds.toUUID(params.parentCommentId) : null,
+          // hiddenAt will default to null in the DB
         })
         .returning();
 
       if (!dbComment) {
-        logger.error("Failed to insert comment into database.");
-        throw new Error("Failed to create comment.");
+        logger.error("Failed to insert comment into database after creating text content.");
+        // Potentially attempt to delete the created text content if we want to be super clean
+        // await this.textService.deleteText(textContent.textId, executor); // Example
+        throw new Error("Could not save comment record.");
       }
 
-      logger.info({ commentId: dbComment.commentUuid, textId: createdText.textId }, "Successfully added new comment.");
-      return this._toBlogPostCommentDTO(dbComment, authorPublic, createdText);
+      // 3. Fetch the author's public details
+      const author = await this.userService.getById(params.authorUserId, executor);
+      if (!author) {
+        // This case is unlikely if authorUserId was validated upstream or if it's from a session
+        logger.error({ authorUserId: params.authorUserId }, "Author not found when creating comment DTO.");
+        throw new Error("Comment author not found.");
+      }
+
+      // 4. Convert to DTO
+      // The _toBlogPostCommentDTO will now include hiddenAt, which will be null for new comments
+      return this._toBlogPostCommentDTO(dbComment, UserService.toPublic(author), textContent);
     };
 
     if (providedExecutor === this.db) {
-      logger.debug("No external transaction provided for addComment, creating a new one.");
+      logger.debug("No external transaction, creating new one for addComment.");
       return this.db.transaction(async (tx) => {
         return operation(tx);
       });
     } else {
-      logger.debug("External transaction executor provided for addComment, using it directly.");
+      logger.debug("External transaction executor provided, using it for addComment.");
       return operation(providedExecutor);
     }
   }
 
   async getCommentsForPost(
     blogPostId: string, // This is the sanityBlogPostId
+    isRequestingUserStaff: boolean = false, // New parameter
     executor: DrizzleRO = this.dbRO,
   ): Promise<BlogPostCommentTree> {
-    const logger = this.logger.child({ fn: "getCommentsForPost", blogPostId });
-    logger.debug("Fetching comments for blog post");
+    const logger = this.logger.child({ fn: "getCommentsForPost", blogPostId, isRequestingUserStaff });
+    logger.debug("Fetching comments for post.");
 
     const dbComments = await executor
       .select()
       .from(BLOG_POST_COMMENTS)
       .where(eq(BLOG_POST_COMMENTS.sanityBlogPostId, blogPostId))
-      .orderBy(BLOG_POST_COMMENTS.createdAt);
+      .orderBy(desc(BLOG_POST_COMMENTS.createdAt)); // Fetch newest first for easier tree building if needed, or sort later
 
-    if (!dbComments || dbComments.length === 0) {
-      logger.debug("No comments found for blog post, returning empty tree.");
+    if (dbComments.length === 0) {
+      logger.debug("No comments found for post.");
       return { __type: "BlogPostCommentTree", children: [] };
     }
 
-    const commentDTOPromises = dbComments.map(async (dbComment) => {
-      const textContent = await this.textService.getLatestTextById(
-        TextIds.toRichId(dbComment.textUuid),
-        executor,
-      );
-      // Ensure userUuid is used as per DB schema for BLOG_POST_COMMENTS
-      const authorPrivate = await this.userService.getByUserUUID(dbComment.userUuid, executor);
+    logger.debug({ count: dbComments.length }, "Fetched raw comments from DB.");
 
-      if (!textContent) {
-        logger.error({ textUuid: dbComment.textUuid, commentUuid: dbComment.commentUuid }, "Text content not found for comment. Skipping this comment.");
-        return null;
+    // Fetch all unique user IDs and text IDs
+    const userUuids = _.uniq(dbComments.map(c => c.userUuid));
+    const textUuids = _.uniq(dbComments.map(c => c.textUuid));
+
+    // Batch fetch authors and text contents
+    const authorsPromises = userUuids.map(uuid => this.userService.getByUserUUID(uuid, executor));
+    const textContentsPromises = textUuids.map(uuid => this.textService.getLatestTextById(TextIds.toRichId(uuid), executor));
+
+    const authorsResults = await Promise.all(authorsPromises);
+    const textContentsResults = await Promise.all(textContentsPromises);
+
+    const authorsByUuid = _.keyBy(authorsResults.filter(Boolean).map(i => UserService.toPublic(i!)), "userId");
+    const textContentsByTextId = _.keyBy(textContentsResults.filter(Boolean), "textId");
+
+    const commentNodes: Record<string, BlogPostCommentNode> = {};
+    const rootComments: BlogPostCommentNode[] = [];
+
+    // First pass: create all nodes and map them
+    for (const dbComment of dbComments) {
+      const commentRichId = CommentIds.toRichId(dbComment.commentUuid);
+      const author = authorsByUuid[UserIds.toRichId(dbComment.userUuid)];
+      const textContent = textContentsByTextId[TextIds.toRichId(dbComment.textUuid)];
+
+      if (!author || !textContent) {
+        logger.warn({ commentUuid: dbComment.commentUuid, missingAuthor: !author, missingText: !textContent }, "Skipping comment due to missing author or text content.");
+        continue;
       }
-      if (!authorPrivate) {
-        logger.error({ authorUserUuid: dbComment.userUuid, commentUuid: dbComment.commentUuid }, "Author not found for comment. Skipping this comment.");
-        return null;
+
+      let nodeValue: BlogPostCommentNodeValue;
+
+      if (!isRequestingUserStaff && dbComment.hiddenAt) {
+        nodeValue = {
+          __type: "HiddenCommentPlaceholder",
+          commentId: commentRichId,
+          createdAt: dbComment.createdAt || new Date(), // Ensure createdAt is a Date
+                          message: "This comment has been hidden by a staff member.",
+        };
+      } else {
+        // _toBlogPostCommentDTO now correctly populates hiddenAt
+        nodeValue = await this._toBlogPostCommentDTO(dbComment, author, textContent);
       }
-      const authorPublic = UserService.toPublic(authorPrivate);
 
-      return this._toBlogPostCommentDTO(dbComment, authorPublic, textContent);
-    });
-
-    const resolvedCommentDTOs = (await Promise.all(commentDTOPromises)).filter(
-      (dto): dto is BlogPostCommentTypeDTO => dto !== null,
-    );
-
-    // Build the tree structure
-    const commentsById: Map<string, BlogPostCommentNode> = new Map();
-    const rootNodes: BlogPostCommentNode[] = [];
-
-    // Initialize all nodes
-    for (const dto of resolvedCommentDTOs) {
-      commentsById.set(dto.commentId, {
+      commentNodes[commentRichId] = {
         __type: "BlogPostCommentNode",
-        value: dto,
+        value: nodeValue,
         children: [],
-      });
+      };
     }
 
-    // Link children to their parents
-    for (const dto of resolvedCommentDTOs) {
-      const node = commentsById.get(dto.commentId);
-      if (!node) continue;
+    // Second pass: build the tree structure
+    for (const dbComment of dbComments) {
+      const commentRichId = CommentIds.toRichId(dbComment.commentUuid);
+      const node = commentNodes[commentRichId];
+      if (!node) continue; // Should not happen if node was created in first pass
 
-      if (dto.parentCommentId) {
-        const parentNode = commentsById.get(dto.parentCommentId);
+      if (dbComment.parentCommentUuid) {
+        const parentRichId = CommentIds.toRichId(dbComment.parentCommentUuid);
+        const parentNode = commentNodes[parentRichId];
         if (parentNode) {
-          parentNode.children.push(node);
+          // Add to parent's children, maintaining order (e.g., oldest first for replies)
+          // The initial fetch is newest first, so for children, we might want to unshift or sort later.
+          // For now, let's add and assume client-side will sort children if necessary,
+          // or we sort here. Replies are typically oldest first.
+          parentNode.children.unshift(node); // Or .push(node) and sort parentNode.children later
         } else {
-          logger.warn({ commentId: dto.commentId, parentCommentId: dto.parentCommentId }, "Parent comment not found for child, adding child as a root node.");
-          rootNodes.push(node);
+          // Parent comment was hidden or deleted, or data inconsistency
+          // Add as a root comment for now, or handle as orphaned
+          logger.warn({ commentId: commentRichId, parentId: parentRichId }, "Parent comment not found in map, adding as root.");
+          rootComments.push(node);
         }
       } else {
-        rootNodes.push(node);
+        rootComments.push(node);
       }
     }
 
-    // Sort children by createdAt date to ensure chronological order within siblings
-    commentsById.forEach(node => {
-      node.children.sort((a, b) => a.value.createdAt.getTime() - b.value.createdAt.getTime());
-    });
-    // Also sort root nodes
-    rootNodes.sort((a,b) => a.value.createdAt.getTime() - b.value.createdAt.getTime());
+    // Sort root comments (e.g., oldest first or newest first based on a preference)
+    // The initial fetch was `desc(createdAt)`. If we want roots oldest first:
+    rootComments.sort((a, b) => new Date(a.value.createdAt).getTime() - new Date(b.value.createdAt).getTime());
 
-    logger.debug({ blogPostId, commentCount: resolvedCommentDTOs.length, rootNodeCount: rootNodes.length }, "Successfully fetched and structured comments.");
-    return {
-      __type: "BlogPostCommentTree",
-      children: rootNodes,
+    // Sort children of each node (typically replies are oldest first)
+    for (const nodeId in commentNodes) {
+      commentNodes[nodeId].children.sort((a, b) => new Date(a.value.createdAt).getTime() - new Date(b.value.createdAt).getTime());
+    }
+
+    logger.info({ roots: rootComments.length, totalNodes: Object.keys(commentNodes).length }, "Successfully built comment tree.");
+    return { __type: "BlogPostCommentTree", children: rootComments };
+  }
+
+  async setCommentHiddenStatus(
+    commentId: CommentId,
+    hide: boolean,
+    staffUserId: UserId,
+    providedExecutor: Drizzle = this.db
+  ): Promise<BlogPostCommentTypeDTO | null> {
+    const logger = this.logger.child({ fn: "setCommentHiddenStatus", commentId, hide, staffUserId });
+
+    const operation = async (executor: Drizzle): Promise<BlogPostCommentTypeDTO | null> => {
+      const staffUser = await this.userService.getById(staffUserId, executor);
+      if (!staffUser || !staffUser.grants.comments.moderate) {
+        logger.warn({ staffUserId }, "User not authorized to moderate comments or user not found.");
+        throw new Error("User not authorized to perform this action.");
+      }
+
+      const commentUuid = CommentIds.toUUID(commentId);
+      const updateValues: Partial<DBBlogPostComment> = {
+        hiddenAt: hide ? new Date() : null,
+        updatedAt: new Date(),
+      };
+
+      const [updatedDbComment] = await executor
+        .update(BLOG_POST_COMMENTS)
+        .set(updateValues)
+        .where(eq(BLOG_POST_COMMENTS.commentUuid, commentUuid))
+        .returning();
+
+      if (!updatedDbComment) {
+        logger.warn({ commentUuid }, "Comment not found for updating hidden status.");
+        return null;
+      }
+
+      logger.info({ commentUuid, hidden: hide }, "Successfully updated comment hidden status.");
+
+      // Fetch author and text content to return the full DTO
+      const author = await this.userService.getByUserUUID(updatedDbComment.userUuid, executor);
+      const textContent = await this.textService.getLatestTextById(TextIds.toRichId(updatedDbComment.textUuid), executor);
+
+      if (!author || !textContent) {
+        logger.error({ commentUuid, missingAuthor: !author, missingText: !textContent }, "Could not retrieve full details for updated comment.");
+        // This is problematic as the comment *was* updated.
+        // Return a partial DTO or throw, depending on strictness.
+        // For now, let's indicate an issue by potentially returning null or a specific error.
+        // However, the DB update succeeded.
+        // Let's assume _toBlogPostCommentDTO can handle potentially missing pieces or throw if critical.
+        // For now, we must have them.
+        throw new Error("Failed to reconstruct comment DTO after update due to missing author or text.");
+      }
+
+      return this._toBlogPostCommentDTO(updatedDbComment, UserService.toPublic(author), textContent);
     };
+
+    if (providedExecutor === this.db) {
+      logger.debug("No external transaction, creating new one for setCommentHiddenStatus.");
+      return this.db.transaction(async (tx) => {
+        return operation(tx);
+      });
+    } else {
+      logger.debug("External transaction executor provided, using it for setCommentHiddenStatus.");
+      return operation(providedExecutor);
+    }
   }
 }
