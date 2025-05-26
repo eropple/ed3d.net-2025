@@ -3,10 +3,14 @@ import type { Static } from "@sinclair/typebox";
 import { Type } from "@sinclair/typebox";
 import { TypeCompiler } from "@sinclair/typebox/compiler";
 import cryptoRandomString from "crypto-random-string";
-import { pgTable, uuid, timestamp, text, boolean, jsonb, pgEnum, integer, unique, index, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, uuid, timestamp, text, boolean, jsonb, pgEnum, integer, unique, index, doublePrecision, primaryKey, foreignKey } from "drizzle-orm/pg-core";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import ms from "ms";
+import type { Node } from "prosemirror-model";
 import { ulid, ulidToUUID } from "ulidx";
 
+import type { CommentId } from "../../../domain/comments/ids.js";
+import type { TextId, TextRevisionId } from "../../../domain/texts/ids.js";
 import { type StringUUID } from "../../../ext/typebox/index.js";
 import type { Sensitive } from "../../vault/types.js";
 
@@ -66,6 +70,8 @@ export const USERS = pgTable("users", {
    * Increment this value to invalidate all existing tokens.
    */
   tokenSalt: integer().notNull().default(1),
+
+  isStaff: boolean("is_staff").notNull().default(false),
 
   ...TIMESTAMPS_MIXIN,
 });
@@ -207,7 +213,7 @@ export type DBUserAtprotoIdentity = typeof USER_ATPROTO_IDENTITIES.$inferSelect;
 export const USER_SESSIONS = pgTable("user_sessions", {
   sessionUuid: ULIDAsUUID().primaryKey(),
 
-  userUuid: uuid()
+  userUuid: ULIDAsUUID()
     .references(() => USERS.userUuid)
     .notNull(),
 
@@ -231,3 +237,46 @@ export const USER_SESSIONS = pgTable("user_sessions", {
   ...TIMESTAMPS_MIXIN,
 });
 export type DBUserSession = typeof USER_SESSIONS.$inferSelect;
+
+export const TEXTS = pgTable("texts", {
+  textUuid: ULIDAsUUID("text_uuid").primaryKey(),
+  revisionUuid: ULIDAsUUID("revision_uuid").notNull(),
+  kind: text("kind").notNull(),
+  contentJson: jsonb("content_json").notNull().$type<Node>(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+    .notNull()
+    .defaultNow(),
+}, (t) => [{
+  compoundKey: primaryKey({ columns: [t.textUuid, t.revisionUuid] }),
+  textUuidIdx: index("texts_text_uuid_idx").on(t.textUuid),
+}]);
+export type DBText = typeof TEXTS.$inferSelect;
+
+export const BLOG_POST_COMMENTS = pgTable("blog_post_comments", {
+  commentUuid: ULIDAsUUID("comment_uuid").primaryKey(),
+
+  sanityBlogPostId: text("sanity_blog_post_id").notNull(),
+  userUuid: ULIDAsUUID("user_uuid")
+    .references(() => USERS.userUuid, { onDelete: "cascade" })
+    .notNull(),
+  parentCommentUuid: ULIDAsUUID("parent_comment_uuid"),
+
+  textUuid: ULIDAsUUID("text_uuid")
+    .notNull()
+    .unique(),
+
+  hiddenAt: timestamp("hidden_at", { withTimezone: true, mode: "date" }),
+
+  ...TIMESTAMPS_MIXIN,
+}, (t) => [{
+  parentCommentFk: foreignKey({
+    columns: [t.parentCommentUuid],
+    foreignColumns: [t.commentUuid],
+    name: "blog_post_comments_parent_fk",
+  }).onDelete("cascade"),
+
+  sanityPostIdIdx: index("comments_sanity_post_id_idx").on(t.sanityBlogPostId),
+  userIdx: index("comments_user_id_idx").on(t.userUuid),
+  parentCommentIdx: index("comments_parent_comment_idx").on(t.parentCommentUuid),
+}]);
+export type DBBlogPostComment = typeof BLOG_POST_COMMENTS.$inferSelect;

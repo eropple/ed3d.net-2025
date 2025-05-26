@@ -123,6 +123,8 @@ export class UserService {
    * Convert a DBUser to UserPrivate
    */
   private _dbUserToUserPrivate(dbUser: DBUser): UserPrivate {
+    const isUserStaff = dbUser.isStaff;
+
     return {
       __type: "UserPrivate",
       userId: UserIds.toRichId(dbUser.userUuid),
@@ -132,11 +134,9 @@ export class UserService {
       emailVerified: !!dbUser.emailVerifiedAt,
       grants: {
         __type: "SiteGrants",
-        isStaff: false,
-        isAdmin: false,
-
+        isStaff: isUserStaff,
         comments: {
-          moderate: true,
+          moderate: isUserStaff,
           post: !!dbUser.emailVerifiedAt,
         },
       },

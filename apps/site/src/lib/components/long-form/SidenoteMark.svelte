@@ -5,5 +5,4 @@
   let value = $derived(portableText.value);
 </script>
 
-{@render children()}
-<Sidenote id={value._key} markdown={value.markdown} />
+{@render children()}<Sidenote id={value._key} markdown={value.markdown} />

@@ -3,7 +3,7 @@ description:
 globs: package.json,apps/site/**/*
 alwaysApply: false
 ---
-# Ed3d.net Application Architecture Reference
+## Ed3d.net Application Architecture Reference
 
 ## Core Architecture
 - **Framework**: SvelteKit (Svelte 5.x) with TypeScript
@@ -12,8 +12,8 @@ alwaysApply: false
 
 ## Dependency Injection
 The application uses Awilix for dependency injection with two primary scopes:
-- **Singleton Scope**: Application-wide services configured in [_deps/scopes/singleton.ts](mdc:apps/site/src/lib/server/_deps/scopes/singleton.ts)
-- **Request Scope**: Per-request dependencies configured in [_deps/scopes/request.ts](mdc:apps/site/src/lib/server/_deps/scopes/request.ts)
+- **Singleton Scope**: Application-wide services configured ins](mdc:apps/site/src/lib/server/_deps/scopes/singleton.ts)
+- equest dependencies configured in [_deps/scopes/request.ts](mdc:apps/site/src/lib/server/_deps/scopes/request.ts)
 
 ## Key Services
 
@@ -52,9 +52,7 @@ fetch: FetchFn
 ### Configuration & Logging
 ```typescript
 // Application configuration
-config: DeepReadonly<AppConfig>
-
-// Structured logger
+config: DeepReadonly<tructured logger
 logger: Logger
 ```
 
@@ -79,10 +77,10 @@ logger: Logger
 
 ## Development Considerations
 
-### Adding New Dependencies
-New dependencies should be registered in the appropriate container:
-- Application-wide services in `configureBaseAwilixContainer()` (likely in [_deps/scopes/singleton.ts](mdc:apps/site/src/lib/server/_deps/scopes/singleton.ts))
+### Adding New Dependeuld be registered in the appropriate container:
+- Application-wide singleton container [_deps/scopes/singleton.ts](mdc:apps/site/src/lib/server/_deps/scopes/singleton.ts)
 - Request-scoped services in `configureRequestScope()` (likely in [_deps/scopes/request.ts](mdc:apps/site/src/lib/server/_deps/scopes/request.ts))
+- For service objects (not expensive-to-create things like database pools), DO NOT add `.singleton()`, because we want it re-created with the request-scoped logger in order to have better logs.
 
 ### Logging
 Our injector always includes `logger`, which is a Pino logger. In classes, this should be used to create an instance-level child logger, e.g. `this.logger = logger.child({ component: MyClassName.constructor.name })`. In functions, both inside and out of a class, we should then use the most specific logger to create a child of that, e.g. `const logger = this.logger.child({ fn: MyFunction.name })`.
@@ -93,7 +91,7 @@ If a particular piece of code is going to need to log the same data multiple tim
 - Use `dbRO` for read operations to leverage database replicas
 - Use `db` only for write operations
 - All database access is through Drizzle ORM
-- All models (types declared via `.$inferSelect`) should begin with `DB`.
+- All models (types declared via `.$inferSelect`) should begin with eration**: Columns using the `ULIDAsUUID()` helper (defined in `[apps/site/src/lib/server/db/schema/index.ts](mdc:apps/site/src/lib/server/db/schema/index.ts)`) automatically generate their UUID values at the database level upon insertion if no value is provided for them. Services should not typically generate these UUIDs beforehand for new records but should rely on the database default and the `returning()` Drizzle clause to get the generated IDs.
 
 ### Background Tasks
 Long-running or reliability-critical tasks should use Temporal workflows instead of simple background jobs or cron tasks.
@@ -105,27 +103,29 @@ All errors are automatically logged with request context. Unhandled errors are c
 All SvelteKit routes, unless explicitly ordered otherwise, should have server-side logic only, e.g. `+page.server.ts` and `+layout.server.ts`.
 
 ## Services
-Services own database resources. For example, `UserService` owns the `user` table.
+Services own database resources. For example, `UserService` owns the `USERS` table.
 
 When adding methods to a service:
 - **Follow existing patterns**: Ensure new methods match the signatures (arguments, return types like `Promise<UserPrivate>`) and conventions of similar existing methods within that service.
 - **Use existing getters**: Leverage the service's own getter methods (e.g., `getById`, `getByUsername`) for fetching data needed within the new method, rather than duplicating select logic. This ensures consistency and reuse of helper functions (like DTO conversion).
 - **Handle errors consistently**: Throw standard `Error` objects with clear messages, mirroring the error handling in other methods.
+- **Database Executors**: Methods performing database write operations (inserts, updates, deletes) should accept an optional `executor: Drizzle = this.db` parameter to allow for transactional control. Read operations should use an optional `executor: DrizzleRO = this.dbRO`.
 
 ## Service Object Types
 
 Services define externally returnable objects (DTOs) with the following rules:
 
 - Services should NEVER return database models (like `DBUser`) from public methods
-- Each service's DTOs should be defined as TypeBox objects in a `types.ts` (or a `types/index.ts` file with related files) file alongside the service
+- Each service's DTOs should be defined as TypeBox objects in a `types.ts` types/index.ts` file with related files) file within the corresponding `lib/domain/{domainName}/` directory (e.g., `[apps/site/src/lib/domain/users/types.ts](mdc:apps/site/src/lib/domain/users/types.ts)`).
 - Each service object should have a `__type` field with a literal value matching the object type (e.g., `__type: "UserPublic"`)
 - Try to build them via composition rather than copying whenever possible, for example:
-- Services that consume other services' DAOs, or non-getter methods in a service that owns a DAO, should accept either the DAO or its primary ID as an argument. For example, `AuthService` should accept `UserPrivate` (the entire returned object from `UserService.getById`, containing ` userId: UserIds.TRichId`) or `UserId` (the primary ID of the user).
+- Services that consume other services' DTOs, or non-getter methods in a service that owns a DTO, should accept either the DTO or its primary Rich ID as ample, `AuthService` might accept `UserPrivate` (the entire returned object from `UserService.getById`, containing `userId: UserIds.TRichId`) or `UserId` (the Rich ID of the user).
 
 ```ts
 export const UserPublic = Type.Object({
   __type: Type.Literal("UserPublic"),
   userId: UserIds.TRichId,
+  // ... other public fields
 });
 
 export const UserPrivate = Type.Composite([
@@ -133,19 +133,19 @@ export const UserPrivate = Type.Composite([
   Type.Object({
     __type: Type.Literal("UserPrivate"),
     email: Type.String({ format: "email" }),
+    // ... other private fields
   })
 ]);
 ```
 
-- Service objects using rich IDs should have the appropriate rich ID type from [ids.ts](mdc:apps/site/src/lib/server/domain/ids.ts) (assuming location, adjust if needed)
-- Services should provide methods to convert between public and private representations:
-  - `toPublic(privateObject)` to reduce a private object to its public representation
-  - Database objects should be converted to DTOs before being returned from service methods
-- Avatars should use Gravatar URLs based on the user's email rather than stored URLs
+- **Rich IDs**: Service objects using rich IDs should use the Rich ID types (e.g., `UserId`, `TextId`) generated by `createRichIdUtils` (from `[apps/site/src/lib/domain/utils/rich-id.ts](mdc:apps/site/src/lib/domain/utils/rich-id.ts)`). The conversion from database UUIDs (strings) to Rich IDs (e.g., `user-01HXM...`) and vice-versa is handled within the service layer using the utilities like `UserIds.toRichId(dbUser.userUuid)` and `UserIds.toUUID(richUserId)`.
+- Services should provide methods to convert between public and private representations where applicable (e.g., `UserService.toPublic(privateUserObject)`).
+- Database objects (e.g., `DBUser`) must be converted to DTOs before being returned from public service methods.
+- Avatars should use Gravatar URLs based on the user's email rather than stored URLs.
 
 ## Working in Svelte
 
-- Components that are specific to a route should live next to the +layout.svelte or +page.svelte files that they relate to. Reusable components should go in the [src/lib/components](mdc:apps/site/src/lib/components) directory.
+- Components that are specific to a route should live next to the `+layout.svelte` or `+page.svelte` files that they relate to. Reusable components should go in the `[src/lib/components](mdc:apps/site/src/lib/components)` directory.
 - Use Tailwind CSS whenever possible instead of custom CSS.
 - When in the workshop (control panel, routes under `/workshop`), use DaisyUI components.
 - In page/layout loaders, you can determine if a user is logged in by checking `locals.user`. If they are not logged in, you can redirect them to the login page by throwing a redirect exception:

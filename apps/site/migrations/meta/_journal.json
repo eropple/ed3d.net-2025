@@ -36,6 +36,27 @@
       "when": 1746307204791,
       "tag": "0004_discordSocialProvider",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1746900386536,
+      "tag": "0005_addingCommentTables",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1746901300086,
+      "tag": "0006_fixingNullability",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1746922243691,
+      "tag": "0007_addingStaffFunctionalityForComments",
+      "breakpoints": true
     }
   ]
 }

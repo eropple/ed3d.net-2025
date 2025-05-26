@@ -118,6 +118,7 @@ export const longFormBlockContentProjection = q
 export const blogShortProjection = q
   .fragmentForType<"blogPost">()
   .project((sub) => ({
+    id: sub.field("_id"),
     slug: sub.field("slug.current", q.string()),
     title: sub.field("title"),
     blurb: sub.field("blurb"),
@@ -132,6 +133,7 @@ export const blogShortProjection = q
 export const blogProjection = q
   .fragmentForType<"blogPost">()
   .project((sub) => ({
+    id: sub.field("_id"),
     slug: sub.field("slug.current", q.string()),
     title: sub.field("title"),
     blurb: sub.field("blurb"),
