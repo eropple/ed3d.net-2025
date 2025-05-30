@@ -1,0 +1,50 @@
+# Dependencies
+node_modules
+.pnpm-store
+apps/*/node_modules
+
+# Build artifacts
+apps/*/build
+apps/*/.svelte-kit
+apps/*/dist
+
+# Development environment
+_dev-env
+.env*
+!.env.example
+
+# Version control
+.git
+.gitignore
+
+# Editor
+.vscode
+.cursor
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs
+
+# Testing
+coverage
+.nyc_output
+
+# Reference and documentation
+reference/
+*.md
+!apps/*/README.md
+
+# Development tools
+Tiltfile
+.tool-versions
+.editorconfig
+
+# Sanity specific (in any app)
+apps/*/.sanity 

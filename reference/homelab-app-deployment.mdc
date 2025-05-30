@@ -1,0 +1,749 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Homelab Kubernetes App Deployment Guide
+
+This guide covers best practices for deploying applications in the homelab Kubernetes cluster based on established patterns and available infrastructure.
+
+## Namespace Convention
+
+- **Production apps**: Use format `app-{name}-production` (e.g., `app-umami-production`)
+- **Staging/dev apps**: Use format `app-{name}-{environment}` (e.g., `app-umami-staging`)
+- **App directories**: Place in `k8s/1xx-app-{name}/` (e.g., `k8s/100-app-umami/`)
+
+## Database Selection
+
+### Use CloudNative-PG (CNPG) for PostgreSQL when:
+- App requires PostgreSQL
+- Need high availability (2+ replicas)
+- Need automated backups and management
+- **CNPG automatically creates secrets** with connection details (use `{clustername}-app` secret)
+
+#### ⚠️ CNPG Database Credential Patterns:
+CNPG **does NOT** use your cluster name for database/user names. Instead:
+- **Database name**: Always `app` (not your cluster name) - **unless overridden in bootstrap.initdb**
+- **Username**: Always `app` (not your cluster name) - **unless overridden in bootstrap.initdb**
+- **Secret name**: `{clustername}-app` (e.g., `shlink-postgres-app`)
+- **Secret keys**: Use `username`, `password`, `dbname`, `host`, `port`
+
+#### CNPG Environment Variable Configuration:
+**❌ WRONG** (Don't hardcode in ConfigMap):
+```yaml
+- name: DB_NAME
+  valueFrom:
+    configMapKeyRef:
+      name: app-config
+      key: DB_NAME  # Don't do this!
+```
+
+**✅ CORRECT** (Read from CNPG secret):
+```yaml
+- name: DB_NAME
+  valueFrom:
+    secretKeyRef:
+      name: {clustername}-app
+      key: dbname  # CNPG provides this
+- name: DB_USER
+  valueFrom:
+    secretKeyRef:
+      name: {clustername}-app
+      key: username  # Usually 'app' unless overridden
+- name: DB_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {clustername}-app
+      key: password
+- name: DB_HOST
+  valueFrom:
+    secretKeyRef:
+      name: {clustername}-app
+      key: host  # e.g., 'myapp-postgres-rw'
+- name: DB_PORT
+  valueFrom:
+    secretKeyRef:
+      name: {clustername}-app
+      key: port  # Always '5432'
+```
+
+#### Alternative: Use Full Connection URI
+Many apps support a single DATABASE_URL:
+```yaml
+- name: DATABASE_URL
+  valueFrom:
+    secretKeyRef:
+      name: {clustername}-app
+      key: uri  # Full PostgreSQL connection string
+```
+
+### Database Configuration Example (Single Database):
+```yaml
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {app}-postgres
+  namespace: app-{app}-production
+spec:
+  instances: 2
+  bootstrap:
+    initdb:
+      database: app          # Default application database
+      owner: app            # Default application user
+  postgresql:
+    parameters:
+      # Optimize based on workload
+      track_activities: "on"
+      track_counts: "on"
+  storage:
+    size: "20Gi"
+    storageClass: "longhorn-fast-2"  # Use fast storage for databases
+  monitoring:
+    enablePodMonitor: true
+```
+
+### Database Configuration Example (Multiple Databases):
+For applications that need multiple databases (like Temporal with main + visibility databases):
+
+```yaml
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: temporal-postgres
+  namespace: app-temporal-production
+spec:
+  instances: 2
+  bootstrap:
+    initdb:
+      database: temporal
+      owner: temporal
+      postInitSQL:
+        # you'll need to create the `database` database as well here, for reasons.
+        - "CREATE DATABASE temporal OWNER temporal;"
+        - "CREATE DATABASE temporal_visibility OWNER temporal;"
+        - "GRANT ALL PRIVILEGES ON DATABASE temporal TO temporal;"
+        - "GRANT ALL PRIVILEGES ON DATABASE temporal_visibility TO temporal;"
+  postgresql:
+    parameters:
+      track_activities: "on"
+      track_counts: "on"
+  storage:
+    size: "40Gi"
+    storageClass: "longhorn-slow-2"
+  monitoring:
+    enablePodMonitor: true
+```
+
+**Important**: When using multiple databases:
+1. **Create the primary database** in `bootstrap.initdb.database`
+2. **Create additional databases** in `postInitSQL` section
+3. **Set `SKIP_DB_CREATE: "true"`** in any setup jobs since databases already exist:
+   ```yaml
+   env:
+   - name: SKIP_DB_CREATE
+     value: "true"
+   ```
+4. **All databases should be owned by the same user** defined in `bootstrap.initdb.owner`
+
+### Use Valkey for Redis-compatible workloads when:
+- App needs caching, sessions, or pub/sub
+- Requires Redis-compatible API
+- Need high-performance in-memory operations
+
+## Storage Classes
+
+- **longhorn-fast-2**: 2 replicas on NVME - Use for databases, critical data
+- **longhorn-fast-3**: 3 replicas on NVME - Use for highly critical data
+- **longhorn-slow-2**: 2 replicas on SATA-SSD - Use for general storage
+- **longhorn-slow-3**: 3 replicas on SATA-SSD - Use for archival data
+- **All storage classes use `reclaimPolicy: Delete`** for automatic cleanup
+
+## Object Storage with MinIO
+
+### When to Use MinIO:
+- Applications requiring S3-compatible object storage
+- File uploads, document storage, media assets
+- Backup storage for applications
+- Alternative to persistent volumes for shared file access
+- Sourcemap storage for error tracking applications
+
+### MinIO Tenant Configuration:
+```yaml
+apiVersion: minio.min.io/v2
+kind: Tenant
+metadata:
+  name: {app}-minio
+  namespace: app-{app}-production
+spec:
+  users:
+  - name: {app}-storage-user
+  configuration:
+    name: {app}-minio-config
+  pools:
+  - name: pool-0
+    servers: 1  # Single server for most homelab apps
+    volumesPerServer: 1
+    nodeSelector:
+      kubernetes.io/arch: amd64
+    volumeClaimTemplate:
+      metadata:
+        name: data
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        storageClassName: longhorn-slow-2  # Use appropriate storage class
+        resources:
+          requests:
+            storage: 30Gi  # Size based on application needs
+```
+
+### MinIO Application Integration:
+For Django applications using django-storages (like GlitchTip):
+```yaml
+env:
+# S3-compatible storage configuration
+- name: DEFAULT_FILE_STORAGE
+  value: "storages.backends.s3boto3.S3Boto3Storage"
+- name: AWS_ACCESS_KEY_ID
+  valueFrom:
+    secretKeyRef:
+      name: {app}-storage-user
+      key: CONSOLE_ACCESS_KEY
+- name: AWS_SECRET_ACCESS_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {app}-storage-user
+      key: CONSOLE_SECRET_KEY
+- name: AWS_STORAGE_BUCKET_NAME
+  value: "{app}-uploads"
+- name: AWS_S3_ENDPOINT_URL
+  value: "https://minio.app-{app}-production.svc.cluster.local:443"
+```
+
+### MinIO Benefits:
+- **Eliminates PVC sharing issues**: No need for ReadWriteMany volumes
+- **S3-compatible API**: Works with standard S3 libraries
+- **Per-application isolation**: Each app gets its own tenant
+- **Web console access**: Built-in management interface
+- **Secure by default**: Automatic TLS and user credentials
+
+## Secrets Management
+
+- **Use SOPS for sensitive data**: Store as `{number}-{name}-secret.sops.yaml`
+- **Reference in apply script**: Use `sops --decrypt {file}.sops.yaml | kubectl apply -f -`
+- **SOPS age key location**: `../../.sops/age.key` relative to app directory
+
+## Node Architecture
+
+- **AMD64 nodes**: argon, carbon, neon, helium
+- **ARM64 nodes**: cesium, thorium
+- **Use nodeSelector for architecture**: `kubernetes.io/arch: amd64` (most apps need AMD64)
+
+## Traefik Configuration
+
+### IngressRoute Setup (HTTPS only - Cloudflare handles HTTP→HTTPS):
+```yaml
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {app}-tls-certificate
+  namespace: app-{app}-production
+spec:
+  secretName: {app}-tls-secret
+  issuerRef:
+    name: letsencrypt-dns01-issuer
+    kind: ClusterIssuer
+  dnsNames:
+  - {subdomain}.ed3d.net
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {app}-ingressroute
+  namespace: app-{app}-production
+spec:
+  entryPoints:
+  - websecure  # HTTPS only
+  routes:
+  - match: Host(`{subdomain}.ed3d.net`)
+    kind: Rule
+    services:
+    - name: {app}-service
+      port: 80
+  tls:
+    secretName: {app}-tls-secret
+```
+
+### ⚠️ Important: No HTTP redirect needed
+- **Cloudflare handles HTTP→HTTPS redirection**
+- **Only create websecure (HTTPS) IngressRoute**
+- **Do NOT create web (HTTP) IngressRoute with redirect middleware**
+
+## Cloudflare Configuration
+
+**Critical**: Remind the operator to configure Cloudflare:
+1. **SSL/TLS mode**: Set to "Full" (not "Flexible" or "Full (strict)")
+2. **DNS**: Point subdomain to Traefik LoadBalancer IP
+3. **Proxy status**: Orange cloud (proxied) for SSL termination
+
+## Application Configuration Best Practices
+
+### Environment Variables:
+- **Database connections**: Use CNPG-generated secrets (key: `uri`)
+- **SSL settings**: Set `FORCE_SSL=0` (Traefik/Cloudflare handle SSL)
+- **Trailing slashes**: Consider `REMOVE_TRAILING_SLASH=0` to avoid conflicts
+
+### Resource Limits:
+```yaml
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "200m"
+  limits:
+    memory: "4Gi"
+    cpu: "2000m"
+```
+
+### Health Checks:
+```yaml
+livenessProbe:
+  httpGet:
+    path: /health  # or /api/heartbeat
+    port: 3000
+  initialDelaySeconds: 30
+  periodSeconds: 30
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 3000
+  initialDelaySeconds: 10
+  periodSeconds: 10
+```
+
+## OpenTelemetry Collector Setup
+
+When setting up observability for your applications, consider deploying an OTEL collector to gather metrics from:
+- Application services (if they expose Prometheus metrics)
+- **PostgreSQL databases**: ⚠️ **DO NOT** create app-specific collectors for PostgreSQL - use the global CNPG collector in `k8s/040-cloudnative-pg/`
+- **Redis/Valkey instances**: 📋 **TODO** - Create global Valkey collector when first implementing Valkey (similar to CNPG approach)
+- Other application-specific infrastructure components
+
+### Global vs App-Specific Collectors
+
+**Global Collectors** (Infrastructure-level):
+- ✅ **PostgreSQL**: Global CNPG collector in `cnpg-system` namespace automatically discovers ALL PostgreSQL clusters
+- 📋 **TODO - Valkey**: Create when first implementing Redis/Valkey
+
+**App-Specific Collectors** (Application-level):
+- ✅ **Application metrics**: Custom metrics exposed by your application
+- ✅ **App-specific services**: Non-standard metrics that aren't covered by global collectors
+
+### OTEL Collector Configuration Best Practices
+
+#### Critical Configuration Issues to Avoid:
+
+**❌ WRONG** (Causes env var parsing errors):
+```yaml
+relabel_configs:
+  - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+    action: replace
+    target_label: __metrics_path__
+    regex: (.+)
+    replacement: "${1}"  # ❌ This breaks OTEL!
+```
+
+**✅ CORRECT** (Proper Prometheus regex replacement):
+```yaml
+relabel_configs:
+  - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+    action: replace
+    target_label: __metrics_path__
+    regex: (.+)
+    replacement: $1  # ✅ No quotes, no braces
+```
+
+#### Common OTEL Collector Error:
+```
+Error: environment variable "1" has invalid name: must match regex ^[a-zA-Z_][a-zA-Z0-9_]*$
+```
+
+**Cause**: Using `${1}` or `"$1"` instead of `$1` in Prometheus relabel configs.
+
+#### OTEL Collector Template (Application Metrics Only):
+
+```yaml
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {app}-otel-collector-config
+  namespace: app-{app}-production
+  labels:
+    app.kubernetes.io/name: {app}-otel-collector
+    app.kubernetes.io/component: observability
+data:
+  config.yaml: |
+    receivers:
+      prometheus:
+        config:
+          scrape_configs:
+            # Application metrics (if your app exposes them)
+            - job_name: '{app}-app'
+              scrape_interval: 30s
+              kubernetes_sd_configs:
+                - role: pod
+                  namespaces:
+                    names:
+                      - app-{app}-production
+              relabel_configs:
+                # Only scrape pods with prometheus.io/scrape: "true" annotation
+                - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+                  action: keep
+                  regex: true
+                # Only scrape app pods (not infrastructure like postgres)
+                - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+                  action: keep
+                  regex: {app}
+                # Use the prometheus.io/path annotation for metrics path
+                - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+                  action: replace
+                  target_label: __metrics_path__
+                  regex: (.+)
+                  replacement: $1
+                - source_labels: []
+                  target_label: __metrics_path__
+                  replacement: /metrics
+                # Use the prometheus.io/port annotation for metrics port
+                - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+                  action: replace
+                  regex: ([^:]+)(?::\d+)?;(\d+)
+                  replacement: $1:$2  # ✅ Correct syntax
+                  target_label: __address__
+                # Add useful labels
+                - source_labels: [__meta_kubernetes_pod_name]
+                  target_label: pod_name
+                - source_labels: [__meta_kubernetes_namespace]
+                  target_label: kubernetes_namespace
+                - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+                  target_label: app_component
+
+    processors:
+      batch:
+        timeout: 1s
+        send_batch_size: 1000
+      
+      resource:
+        attributes:
+          - key: service.namespace
+            value: "app-{app}-production"
+            action: upsert
+          - key: deployment.environment
+            value: "production"
+            action: upsert
+          - key: cluster.name
+            value: "homelab-k3s"
+            action: upsert
+
+    exporters:
+      otlp:
+        endpoint: "signoz-otel-collector.signoz.svc.cluster.local:4317"
+        tls:
+          insecure: true
+
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+
+    service:
+      extensions: [health_check]
+      pipelines:
+        metrics:
+          receivers: [prometheus]
+          processors: [resource, batch]
+          exporters: [otlp]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {app}-otel-collector
+  namespace: app-{app}-production
+  labels:
+    app.kubernetes.io/name: {app}-otel-collector
+    app.kubernetes.io/component: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {app}-otel-collector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {app}-otel-collector
+        app.kubernetes.io/component: observability
+    spec:
+      serviceAccountName: {app}-otel-collector
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.109.0
+          command: ["/otelcol-contrib"]
+          args: ["--config=/etc/config/config.yaml"]
+          ports:
+            - name: health
+              containerPort: 13133
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/config
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: {app}-otel-collector-config
+
+# Required RBAC for Kubernetes service discovery
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {app}-otel-collector
+  namespace: app-{app}-production
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {app}-otel-collector
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {app}-otel-collector
+subjects:
+  - kind: ServiceAccount
+    name: {app}-otel-collector
+    namespace: app-{app}-production
+roleRef:
+  kind: ClusterRole
+  name: {app}-otel-collector
+  apiGroup: rbac.authorization.k8s.io
+```
+
+**⚠️ Important Notes**:
+- **PostgreSQL metrics are handled by the global CNPG collector** - do not duplicate this in app-specific collectors
+- **Only deploy app-specific collectors** if your application exposes custom metrics
+- **Most simple apps don't need their own collector** - infrastructure metrics are covered globally
+
+### Enabling Metrics on Applications
+
+For applications that expose Prometheus metrics, add these annotations to pod templates:
+
+```yaml
+template:
+  metadata:
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "9090"      # Your app's metrics port
+      prometheus.io/path: "/metrics"  # Your app's metrics endpoint
+    labels:
+      app.kubernetes.io/name: {app}
+```
+
+### OTEL Collector Architecture Considerations
+
+**Global Collectors** (Recommended for infrastructure):
+- ✅ **PostgreSQL**: `cnpg-system` namespace - discovers ALL CNPG clusters
+- 📋 **TODO - Valkey**: Create when implementing Redis/Valkey
+- ✅ Less resource usage
+- ✅ Centralized configuration
+- ✅ Consistent labeling across infrastructure
+
+**App-Specific Collectors** (Use sparingly):
+- ✅ Isolated, easier to debug
+- ✅ App-specific configuration
+- ✅ Clear resource attribution
+- ❌ More resource usage
+- **Use only for**: Custom application metrics, non-standard services
+
+**Decision Matrix**:
+- **PostgreSQL**: ✅ Use global CNPG collector
+- **Application custom metrics**: ✅ Use app-specific collector
+- **Redis/Valkey**: 📋 **TODO** - Create global collector when first implementing
+- **Standard services**: ✅ Use global collectors where available
+
+## File Organization
+
+Standard app directory structure:
+```
+k8s/1xx-app-{name}/
+├── 00-namespace.yaml
+├── 01-{database}-cluster.yaml          # If needed
+├── 02-{app}-secret.sops.yaml          # SOPS encrypted
+├── 03-{app}-configmap.yaml
+├── 04-{app}-deployment.yaml           # Includes Service
+├── 05-traefik-ingressroute.yaml       # Certificate + IngressRoute
+├── 06-otel-collector.yaml             # Optional: Metrics collection
+├── apply.bash                          # Deployment script
+└── README.md                           # Documentation
+```
+
+## Apply Script Template
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+cd "$SCRIPT_DIR" || exit 1
+export SOPS_AGE_KEY_FILE="$SCRIPT_DIR/../../.sops/age.key"
+
+echo "🚀 Deploying {App Name}..."
+
+# Apply namespace
+kubectl apply -f 00-namespace.yaml
+
+# Deploy database (if needed)
+if [ -f "01-*-cluster.yaml" ]; then
+  echo "🐘 Deploying database..."
+  kubectl apply -f 01-*-cluster.yaml
+  kubectl wait --for=condition=Ready cluster/{app}-{db} -n app-{app}-production --timeout=300s
+fi
+
+# Apply secrets
+echo "🔐 Applying secrets..."
+sops --decrypt 02-*-secret.sops.yaml | kubectl apply -f -
+
+# Apply configuration and deployment
+kubectl apply -f 03-*-configmap.yaml
+kubectl apply -f 04-*-deployment.yaml
+
+# Wait for deployment
+kubectl wait --for=condition=Available deployment/{app} -n app-{app}-production --timeout=300s
+
+# Apply ingress
+kubectl apply -f 05-traefik-ingressroute.yaml
+
+echo "✅ {App Name} deployment complete!"
+echo "🔗 Access at: https://{subdomain}.ed3d.net"
+echo "⚠️  Ensure Cloudflare SSL is set to 'Full' mode"
+```
+
+## External-DNS Integration
+
+- **DO NOT use external-dns** for manual deployments
+- **DNS management is handled outside the cluster**
+- **Use manual DNS configuration in Cloudflare**
+
+## Common Patterns
+
+### Web Applications:
+- Use AMD64 architecture
+- PostgreSQL with CNPG for persistence
+- Valkey for sessions/caching
+- Fast storage (longhorn-fast-2)
+- Resource limits: 2 CPU, 4Gi memory
+
+### Microservices:
+- Shared database clusters when appropriate
+- Service mesh considerations
+- Inter-service communication
+
+### Data Processing:
+- May need ARM64 compatibility
+- Higher resource allocations
+- Consider slower storage for large datasets
+
+## Troubleshooting
+
+### Common Issues:
+1. **Insufficient storage**: Check Longhorn disk space and cleanup old volumes
+2. **Architecture mismatch**: Ensure nodeSelector matches available nodes
+3. **SSL redirect loops**: Verify FORCE_SSL=0 and Cloudflare "Full" mode
+4. **Database connection**: Verify CNPG secrets are properly referenced
+5. **Certificate issues**: Check cert-manager logs and ClusterIssuer status
+6. **CNPG authentication failures**: See CNPG troubleshooting below
+
+#### CNPG Database Authentication Troubleshooting:
+**Error**: `FATAL: password authentication failed for user "myapp"`
+
+**Cause**: App is trying to connect with wrong database/username (common when hardcoding in ConfigMap)
+
+**Solution**:
+```bash
+# 1. Check what CNPG actually created
+kubectl get secret {clustername}-app -n {namespace} -o yaml
+
+# 2. Decode the credentials to verify
+kubectl get secret {clustername}-app -n {namespace} -o jsonpath='{.data.username}' | base64 -d
+kubectl get secret {clustername}-app -n {namespace} -o jsonpath='{.data.dbname}' | base64 -d
+
+# 3. Update deployment to use CNPG secret keys (not ConfigMap)
+# See "CNPG Environment Variable Configuration" section above
+```
+
+**Remember**: CNPG creates database/username based on `bootstrap.initdb` values (defaults to `app`/`app`)!
+
+#### CNPG Multiple Database Troubleshooting:
+**Error**: Database setup jobs fail with "database already exists"
+
+**Cause**: Setup job is trying to create databases that were already created during cluster initialization
+
+**Solution**: Add `SKIP_DB_CREATE: "true"` environment variable to setup jobs:
+```yaml
+env:
+- name: SKIP_DB_CREATE
+  value: "true"
+```
+
+### Useful Commands:
+```bash
+# Check app status
+kubectl get pods -n app-{app}-production
+kubectl logs -f deployment/{app} -n app-{app}-production
+
+# Check certificates
+kubectl get certificate -n app-{app}-production
+kubectl describe certificate {app}-tls-certificate -n app-{app}-production
+
+# Check ingress
+kubectl get ingressroute -n app-{app}-production
+kubectl describe ingressroute {app}-ingressroute -n app-{app}-production
+
+# Storage cleanup
+kubectl get pv | grep Released  # Check for orphaned volumes
+
+# Check CNPG cluster and secrets
+kubectl get cluster -n app-{app}-production
+kubectl get secret {clustername}-app -n app-{app}-production -o yaml
+```

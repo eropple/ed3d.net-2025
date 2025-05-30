@@ -1,20 +1,18 @@
 # This file is mostly handled by the workspace-level .dockerignore
 # Only app-specific exclusions needed here
 
-# Local Sanity files
-.sanity
+# SvelteKit specific
+.svelte-kit
 
-# Local build artifacts  
-dist
+# Local build artifacts
+build
 
 # Dependencies
 node_modules
 .pnpm-store
-.yarn
-.npm
 
 # Build artifacts
-build
+dist
 
 # Development
 .env*
@@ -44,4 +42,4 @@ coverage
 
 # Misc
 README.md
-*.md
+*.md 

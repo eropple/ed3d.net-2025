@@ -1,0 +1,337 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Kubernetes Homelab Cluster Overview
+
+This document summarizes the current state and configuration of the Kubernetes homelab cluster.
+
+## Cluster Orchestration
+- **Distribution:** K3s
+- **K3s Version:** `v1.30.0+k3s1` (as configured in Ansible)
+- **Installation Method:** Ansible, using the `techno-tim.k3s_ansible` collection.
+- **K3s Data Directory:** `/mnt/storage/ssd-nvme-1/k3s-data` on all nodes.
+
+## Networking
+- **CNI (Container Network Interface):** Flannel (embedded in K3s, VXLAN backend by default).
+  - **Pod CIDR:** `10.42.0.0/16`
+  - **Service CIDR:** `10.43.0.0/16`
+- **API Server High Availability:** `kube-vip`
+  - **Virtual IP (VIP) for API Server:** `172.27.12.1`
+- **LoadBalancer Service:** `MetalLB` (Layer 2 mode)
+  - **IP Address Pool:** `172.27.12.2` - `172.27.15.254`
+- **Disabled K3s Components:**
+  - `servicelb` (K3s default load balancer)
+
+## Node Inventory
+
+The cluster consists of the following nodes:
+
+### Control Plane / Master Nodes (x86_64)
+1.  **Hostname:** `argon`
+    -   **FQDN:** `argon.homelab.ed3d.casa`
+    -   **IP Address:** `172.27.6.1`
+2.  **Hostname:** `carbon`
+    -   **FQDN:** `carbon.homelab.ed3d.casa`
+    -   **IP Address:** `172.27.6.4`
+3.  **Hostname:** `neon`
+    -   **FQDN:** `neon.homelab.ed3d.casa`
+    -   **IP Address:** `172.27.6.2`
+
+### Worker Nodes
+1.  **Hostname:** `helium` (x86_64)
+    -   **FQDN:** `helium.homelab.ed3d.casa`
+    -   **IP Address:** `172.27.6.3`
+2.  **Hostname:** `cesium` (ARM64 - Orange Pi)
+    -   **FQDN:** `cesium.homelab.ed3d.casa`
+    -   **IP Address:** `172.27.6.5`
+3.  **Hostname:** `thorium` (ARM64 - Orange Pi)
+    -   **FQDN:** `thorium.homelab.ed3d.casa`
+    -   **IP Address:** `172.27.6.6`
+
+## Ansible Configuration
+- The cluster was deployed and is managed by Ansible playbooks located in the `ansible/` directory of this repository.
+- Key configuration files:
+  - `[ansible/inventory.yml](mdc:ansible/inventory.yml)`
+  - `[ansible/group_vars/all/k3s_config.yml](mdc:ansible/group_vars/all/k3s_config.yml)`
+  - `[ansible/group_vars/master/k3s_config.yml](mdc:ansible/group_vars/master/k3s_config.yml)` (was `k3s_master` before, group name changed to `master`)
+  - `[ansible/group_vars/node/k3s_config.yml](mdc:ansible/group_vars/node/k3s_config.yml)` (was `k3s_node` before, group name changed to `node`)
+
+This overview should serve as a quick reference for the cluster's architecture and current setup.
+
+## DNS Management
+
+### ExternalDNS
+- **Purpose**: Automatically manages DNS records for exposed Kubernetes services and ingresses.
+- **Provider**: Cloudflare
+- **Namespace**: `kube-system`
+- **Image**: `registry.k8s.io/external-dns/external-dns:v0.16.1`
+- **Monitored Resources**:
+  - Kubernetes `Service` resources.
+  - Kubernetes `Ingress` resources.
+  - Traefik `IngressRoute` CRDs (API version `traefik.io/v1alpha1`).
+- **Key Configuration Arguments**:
+  - `--provider=cloudflare`
+  - `--source=service`
+  - `--source=ingress`
+  - `--source=crd`
+  - `--crd-source-apiversion=traefik.io/v1alpha1`
+  - `--crd-source-kind=IngressRoute`
+  - `--domain-filter=ed3d.casa` (Restricts ExternalDNS to the `ed3d.casa` domain)
+  - `--txt-owner-id=<YOUR_UNIQUE_CLUSTER_ID>` (Replace with a unique ID for your cluster, e.g., `homelab-main-cluster`)
+- **Secrets**:
+  - Cloudflare API token is stored in a Kubernetes Secret named `cloudflare-api-token-secret` in the `kube-system` namespace.
+  - The manifest for this secret (`[k8s/01-external-dns/01-secret.yaml](mdc:k8s/01-external-dns/01-secret.yaml)`) is encrypted using SOPS with an `age` key.
+- **Manifests Location**: `[k8s/01-external-dns/](mdc:k8s/01-external-dns)`
+  - `[01-secret.yaml](mdc:k8s/01-external-dns/01-secret.yaml)` (SOPS Encrypted)
+  - `[02-serviceaccount.yaml](mdc:k8s/01-external-dns/02-serviceaccount.yaml)`
+  - `[03-clusterrole.yaml](mdc:k8s/01-external-dns/03-clusterrole.yaml)`
+  - `[04-clusterrolebinding.yaml](mdc:k8s/01-external-dns/04-clusterrolebinding.yaml)`
+  - `[05-deployment.yaml](mdc:k8s/01-external-dns/05-deployment.yaml)`
+- **Application Script**: `[k8s/01-external-dns/apply.bash](mdc:k8s/01-external-dns/apply.bash)` is used for manual deployment of these resources.
+- **Sanity Test**: `[k8s/01-external-dns/99-sanity-test.yaml](mdc:k8s/01-external-dns/99-sanity-test.yaml)`
+
+## Storage (Longhorn)
+
+- **Purpose**: Provides persistent, replicated block storage for stateful applications.
+- **Version**: `1.8.1` (via HelmChart)
+- **Namespace**: `longhorn-system`
+- **Installation Method**: K3s `HelmChart` resource in `kube-system` namespace, targeting `longhorn-system`.
+- **Key Features Used**:
+    - `strict-local` data locality: Pods must run on the same node as their data.
+    - Node & Disk Tagging: Used to differentiate storage tiers.
+    - StorageClasses: `longhorn-fast-3`, `longhorn-fast-2`, `longhorn-slow-3`, `longhorn-slow-2`.
+        - `fast` classes use disks tagged `nvme`.
+        - `slow` classes use disks tagged `sata-ssd`.
+- **Disk Configuration**:
+    - Disks on each node are configured via Longhorn's Node CRD (`node.longhorn.io`).
+    - Each disk path is typically `/mnt/storage/<disk-id>/longhorn-storage/`.
+    - `storageReserved` is set on each disk, with higher values on smaller disks (`carbon`, `cesium`, `thorium`) to discourage them from storing many non-primary replicas.
+- **Observability**: Longhorn metrics are collected via a dedicated OpenTelemetry collector that scrapes Prometheus annotations and forwards data to SigNoz.
+- **Manifests Location**: `[k8s/020-longhorn/](mdc:k8s/020-longhorn)`
+    - `[00-namespace.yaml](mdc:k8s/020-longhorn/00-namespace.yaml)`
+    - `[01-longhorn-helmchart.yaml](mdc:k8s/020-longhorn/01-longhorn-helmchart.yaml)`
+    - `[02-longhorn-storageclasses.yaml](mdc:k8s/020-longhorn/02-longhorn-storageclasses.yaml)`
+    - `[02-otel-collector.yaml](mdc:k8s/020-longhorn/02-otel-collector.yaml)` (OpenTelemetry collector for metrics)
+    - `[add-metrics-annotations.sh](mdc:k8s/020-longhorn/add-metrics-annotations.sh)` (Script to add Prometheus annotations)
+    - Snippets for node disk configurations are in `k8s/020-longhorn/node-disk-configs/` (applied manually or via `kubectl edit`).
+
+## Ingress Control (Nginx & Cert-Manager)
+
+### Nginx Ingress Controller
+- **Purpose**: Manages external access to HTTP/S services within the cluster.
+- **Version**: `4.11.2` (via HelmChart)
+- **Namespace**: `ingress-nginx`
+- **Installation Method**: K3s `HelmChart` resource in `kube-system` namespace, targeting `ingress-nginx`.
+- **Ingress Class**: `nginx`
+- **Manifests Location**: `[k8s/011-nginx/00-helm.yaml](mdc:k8s/011-nginx/00-helm.yaml)` (contains Nginx and Cert-Manager HelmCharts)
+
+### Cert-Manager
+- **Purpose**: Automates the management and issuance of TLS certificates from various issuing sources (e.g., Let's Encrypt).
+- **Version**: `v1.15.3` (via HelmChart)
+- **Namespace**: `cert-manager`
+- **Installation Method**: K3s `HelmChart` resource in `kube-system` namespace, targeting `cert-manager`. CRDs are installed by the chart.
+- **Key Components**:
+    - `ClusterIssuer`: `letsencrypt-dns01-issuer` configured for Let's Encrypt using Cloudflare DNS01 challenge.
+- **Secrets**:
+    - `cloudflare-api-credentials` (Secret in `cert-manager` namespace): Stores Cloudflare email and API key.
+        - Manifest: `[k8s/011-nginx/secrets.yaml](mdc:k8s/011-nginx/secrets.yaml)` (contains placeholder values).
+    - `letsencrypt-dns01-private-key` (Secret in `cert-manager` namespace): Stores the ACME private key, managed by Cert-Manager.
+- **Manifests Location**:
+    - `[k8s/011-nginx/00-helm.yaml](mdc:k8s/011-nginx/00-helm.yaml)` (contains Nginx and Cert-Manager HelmCharts)
+    - `[k8s/011-nginx/01-clusterissuer.yaml](mdc:k8s/011-nginx/01-clusterissuer.yaml)`
+    - `[k8s/011-nginx/secrets.yaml](mdc:k8s/011-nginx/secrets.yaml)`
+
+## Observability (SigNoz)
+
+- **Purpose**: Provides unified observability platform for metrics, logs, and traces, replacing the previous Grafana/Prometheus/Loki stack.
+- **Version**: Main SigNoz platform `0.81.1`, k8s-infra chart `0.13.0`
+- **Namespace**: `signoz`
+- **Installation Method**: Two K3s `HelmChart` resources deployed in `kube-system` namespace, targeting `signoz` namespace.
+- **Architecture**: Modern OpenTelemetry-first platform with unified experience for all telemetry data.
+
+### Components Deployed
+- **ClickHouse**: Columnar database for high-performance analytics and storage
+- **Query Service**: SigNoz backend API service
+- **Frontend**: React-based web UI accessible at `https://signoz.k8s-svc.ed3d.casa`
+- **OTLP Collector**: Central OpenTelemetry collector for receiving application telemetry
+- **k8s-infra**: Comprehensive Kubernetes monitoring agents and collectors
+- **Zookeeper**: Coordination service for ClickHouse clustering
+- **Alert Manager**: Integrated alerting system
+
+### Data Collection Strategy
+- **Cluster-wide Monitoring**: Automatic collection of Kubernetes metrics, container logs, and cluster events
+- **Component-specific Collectors**: Dedicated OpenTelemetry collectors for infrastructure components (see OTEL Pattern section)
+- **Application Telemetry**: Direct OTLP ingestion from instrumented applications
+
+### Storage Configuration
+- **ClickHouse Data**: `longhorn-slow-2` (200GB) - SATA SSD storage optimized for analytics workloads
+- **Zookeeper Data**: `longhorn-slow-2` (20GB) - Coordination service storage
+- **Retention Policies**:
+    - Traces: 7 days
+    - Logs: 62 days (matching previous Loki retention)
+    - Metrics: 30 days
+
+### Resource Allocation
+| Component | CPU Request | Memory Request | CPU Limit | Memory Limit |
+|-----------|-------------|----------------|-----------|--------------|
+| ClickHouse | 1000m | 4Gi | 2000m | 8Gi |
+| Query Service | 500m | 1Gi | 1000m | 2Gi |
+| OTLP Collector | 500m | 1Gi | 1000m | 2Gi |
+| k8s-infra Agents (per node) | 100m | 128Mi | 500m | 512Mi |
+| k8s-infra Deployment | 200m | 256Mi | 1000m | 1Gi |
+
+### Endpoints for Applications
+- **OTLP gRPC**: `signoz-otel-collector.signoz.svc.cluster.local:4317`
+- **OTLP HTTP**: `signoz-otel-collector.signoz.svc.cluster.local:4318`
+- **Jaeger gRPC** (legacy): `signoz-otel-collector.signoz.svc.cluster.local:14250`
+- **Jaeger HTTP** (legacy): `signoz-otel-collector.signoz.svc.cluster.local:14268`
+
+### Manifests Location
+- **Main Platform**: `[k8s/031-signoz/](mdc:k8s/031-signoz)`
+    - `[00-namespace.yaml](mdc:k8s/031-signoz/00-namespace.yaml)`
+    - `[01-signoz-helmchart.yaml](mdc:k8s/031-signoz/01-signoz-helmchart.yaml)` (Core SigNoz platform)
+    - `[02-k8s-infra-helmchart.yaml](mdc:k8s/031-signoz/02-k8s-infra-helmchart.yaml)` (Kubernetes monitoring)
+    - `[03-ingress.yaml](mdc:k8s/031-signoz/03-ingress.yaml)` (Web UI access)
+    - `[apply.bash](mdc:k8s/031-signoz/apply.bash)` (Deployment script)
+- **Testing**: `[k8s/031-signoz/smoke-test/](mdc:k8s/031-signoz/smoke-test)`
+
+## OpenTelemetry Collector Pattern
+
+The cluster uses a **distributed OpenTelemetry collector pattern** where each infrastructure component or application namespace deploys its own OTEL collector to collect component-specific metrics and forward them to the central SigNoz platform. This approach provides:
+
+- **Component Isolation**: Each collector is scoped to specific workloads
+- **Resource Efficiency**: Collectors run with minimal resource footprint
+- **Flexible Configuration**: Each collector can be tuned for its specific data sources
+- **Unified Destination**: All collectors send data to the central SigNoz OTLP endpoint
+
+### Standard OTEL Collector Structure
+
+Each component follows this pattern (see `[k8s/020-longhorn/02-otel-collector.yaml](mdc:k8s/020-longhorn/02-otel-collector.yaml)` and `[k8s/100-app-umami/02-otel-collector.yaml](mdc:k8s/100-app-umami/02-otel-collector.yaml)` for examples):
+
+```yaml
+# ConfigMap with OTEL collector configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {component}-otel-collector-config
+  namespace: {target-namespace}
+data:
+  config.yaml: |
+    receivers:
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: '{component}-metrics'
+              scrape_interval: 60s
+              kubernetes_sd_configs:
+                - role: pod  # or service
+                  namespaces:
+                    names: ["{target-namespace}"]
+              relabel_configs:
+                # Standard prometheus.io annotation filtering
+                - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+                  action: keep
+                  regex: true
+                # Component-specific filtering (e.g., by labels)
+                # Custom label mapping for better categorization
+    
+    processors:
+      batch:
+        timeout: 1s
+        send_batch_size: 1000
+      resource:
+        attributes:
+          - key: service.name
+            value: "{component-name}"
+            action: upsert
+          - key: service.namespace
+            value: "{target-namespace}"
+            action: upsert
+          - key: deployment.environment
+            value: "production"
+            action: upsert
+    
+    exporters:
+      otlp:
+        endpoint: "signoz-otel-collector.signoz.svc.cluster.local:4317"
+        tls:
+          insecure: true
+    
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+    
+    service:
+      extensions: [health_check]
+      pipelines:
+        metrics:
+          receivers: [prometheus]
+          processors: [resource, batch]
+          exporters: [otlp]
+
+---
+# Standard deployment, serviceaccount, RBAC, and service resources
+# See examples for complete manifests
+```
+
+### Implemented OTEL Collectors
+
+1. **Longhorn Storage**: `[k8s/020-longhorn/02-otel-collector.yaml](mdc:k8s/020-longhorn/02-otel-collector.yaml)`
+   - Collects Longhorn manager and volume metrics
+   - Monitors storage performance and health
+   - Uses Prometheus annotation-based discovery
+
+2. **Application Databases**: `[k8s/100-app-umami/02-otel-collector.yaml](mdc:k8s/100-app-umami/02-otel-collector.yaml)`
+   - Collects PostgreSQL metrics from CloudNativePG clusters
+   - Monitors database performance, connections, queries
+   - Uses CNPG-specific label filtering
+
+3. **Future Components**: The pattern can be applied to any component that exposes Prometheus metrics:
+   - Additional databases (Valkey/Redis)
+   - Application-specific metrics
+   - Third-party services
+   - Custom exporters
+
+### OTEL Collector Best Practices
+
+- **Image**: Use `otel/opentelemetry-collector-contrib:0.109.0` for comprehensive receiver support
+- **Resources**: Start with 50m CPU / 64Mi memory requests, 100m CPU / 96Mi memory limits
+- **Health Checks**: Always include liveness/readiness probes on port 13133
+- **Service Discovery**: Use Kubernetes service discovery with appropriate role (`pod` or `service`)
+- **Relabeling**: Filter using `prometheus.io/scrape: "true"` annotations as the primary selector
+- **Batch Processing**: Configure reasonable batch sizes (1000 metrics) and timeouts (1s)
+- **Resource Attribution**: Add consistent service.name, service.namespace, and deployment.environment attributes
+
+## Databases (CloudNativePG)
+
+- **Purpose**: Provides managed, highly available PostgreSQL database clusters within Kubernetes.
+- **Operator Version**: `1.25.1` (as per installed manifests)
+- **Namespace for Operator**: `cnpg-system` (default installation namespace)
+- **Installation Method**: Kubernetes manifests applied directly. The operator manages `Cluster` Custom Resources.
+- **Key Features Used/Planned**:
+    - Declarative deployment and management of PostgreSQL instances.
+    - Automated High Availability (primary/standby with streaming replication and failover).
+    - Backup to S3-compatible object stores (WAL archiving and base backups).
+    - Option for base backups using Kubernetes Volume Snapshots (e.g., with Longhorn StorageClasses like `longhorn-fast-1`).
+    - Built-in Prometheus exporter for monitoring.
+- **Observability Integration**: All PostgreSQL clusters are configured with `enablePodMonitor: true` and include Prometheus annotations for automatic metric collection by component-specific OTEL collectors.
+- **Manifests Location**:
+    - Operator: `[k8s/040-cloudnative-pg/cnpg-operator-v1.25.1.yaml](mdc:k8s/040-cloudnative-pg/cnpg-operator-v1.25.1.yaml)`
+    - Example Test Cluster: `[k8s/040-cloudnative-pg/test-cluster/](mdc:k8s/040-cloudnative-pg/test-cluster)`
+
+## In-Memory Cache (Valkey / Redis)
+
+- **Purpose**: Provides in-memory data store services, often used for caching and session management. Valkey is a fork of Redis.
+- **Operator**: SAP Valkey Operator
+    - Deployed via K3s `HelmChart` as specified in `[k8s/041-valkey/00-valkey-operator-helmchart.yaml](mdc:k8s/041-valkey/00-valkey-operator-helmchart.yaml)`.
+    - Operator resources run in the `valkey-operator-system` namespace.
+- **Key Features (SAP Operator)**:
+    - Supports standalone Valkey instances or primary/replica setups with Sentinel for High Availability.
+    - Does *not* currently support sharded Valkey Cluster mode.
+    - TLS encryption (self-signed or `cert-manager`).
+    - AOF persistence.
+    - Prometheus exporter for metrics.
+- **Example Instance**:
+    - A sample Valkey instance configuration can be found in `[k8s/041-valkey/01-valkey-sample-cr.yaml](mdc:k8s/041-valkey/01-valkey-sample-cr.yaml)`.

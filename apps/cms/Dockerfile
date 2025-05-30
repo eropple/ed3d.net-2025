@@ -1,39 +1,51 @@
-FROM node:20-bookworm-slim AS deps
+FROM node:22-bookworm-slim AS deps
 
-RUN echo 3
-RUN mkdir -p /app
-WORKDIR /app
+RUN mkdir -p /workspace
+WORKDIR /workspace
 
-COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* ./
-RUN \
-    if [ -f yarn.lock ]; then yarn --frozen-lockfile; \
-    elif [ -f package-lock.json ]; then npm ci; \
-    elif [ -f pnpm-lock.yaml ]; then yarn global add pnpm && pnpm i --frozen-lockfile; \
-    else echo "Lockfile not found." && exit 1; \
-    fi
+# Copy workspace root package files first
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml* ./
+# Copy the specific app's package.json
+COPY apps/cms/package.json ./apps/cms/
+
+# Install dependencies for the entire workspace
+RUN corepack enable pnpm && pnpm install --frozen-lockfile
 
 # ---------------------------------------
-FROM node:20-bookworm-slim AS development
+FROM node:22-bookworm-slim AS development
 
-RUN mkdir -p /app
-WORKDIR /app
+RUN mkdir -p /workspace
+WORKDIR /workspace
 
-COPY --from=deps /app/node_modules ./node_modules
+# Copy dependencies from deps stage
+COPY --from=deps /workspace/node_modules ./node_modules
+COPY --from=deps /workspace/apps/cms/node_modules ./apps/cms/node_modules
+
+# Copy workspace files
 COPY . .
+
+WORKDIR /workspace/apps/cms
 
 EXPOSE 15333
-CMD ["yarn", "exec", "--", "sanity", "dev"]
+CMD ["pnpm", "dev"]
 
 # ---------------------------------------
-FROM node:20-bookworm-slim AS production
+FROM node:22-bookworm-slim AS production
 
-ENV NEXT_TELEMETRY_DISABLED 1
+ENV NODE_ENV=production
 
-RUN mkdir -p /app
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+RUN mkdir -p /workspace
+WORKDIR /workspace
+
+# Copy dependencies and built app
+COPY --from=deps /workspace/node_modules ./node_modules
+COPY --from=deps /workspace/apps/cms/node_modules ./apps/cms/node_modules
 COPY . .
-RUN yarn exec sanity build
+
+WORKDIR /workspace/apps/cms
+
+# Build the Sanity studio
+RUN pnpm build
 
 EXPOSE 3333
-CMD ["yarn", "exec", "--", "sanity", "start"]
+CMD ["pnpm", "start"]
